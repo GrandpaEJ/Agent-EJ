@@ -118,11 +118,11 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         for (size_t j = 0; j < raw_len; ) {
             if ((up[j] & 0x80) == 0) {
                 j += 1; utf16_size++;
-            } else if ((up[j] & 0xE0) == 0xC0) {
+            } else if ((up[j] & 0xE0) == 0xC0 && j + 1 < raw_len) {
                 j += 2; utf16_size++;
-            } else if ((up[j] & 0xF0) == 0xE0) {
+            } else if ((up[j] & 0xF0) == 0xE0 && j + 2 < raw_len) {
                 j += 3; utf16_size++;
-            } else if ((up[j] & 0xF8) == 0xF0) {
+            } else if ((up[j] & 0xF8) == 0xF0 && j + 3 < raw_len) {
                 j += 4; utf16_size += 2; // supplementary chars = 2 UTF-16 code units
             } else {
                 j += 1; utf16_size++;
@@ -136,16 +136,16 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
             } else if ((up[j] & 0x80) == 0) {
                 buf_write_u8(&b, up[j]);
                 j++;
-            } else if ((up[j] & 0xE0) == 0xC0) {
+            } else if ((up[j] & 0xE0) == 0xC0 && j + 1 < raw_len) {
                 buf_write_u8(&b, up[j]);
                 buf_write_u8(&b, up[j+1]);
                 j += 2;
-            } else if ((up[j] & 0xF0) == 0xE0) {
+            } else if ((up[j] & 0xF0) == 0xE0 && j + 2 < raw_len) {
                 buf_write_u8(&b, up[j]);
                 buf_write_u8(&b, up[j+1]);
                 buf_write_u8(&b, up[j+2]);
                 j += 3;
-            } else if ((up[j] & 0xF8) == 0xF0) {
+            } else if ((up[j] & 0xF8) == 0xF0 && j + 3 < raw_len) {
                 // 4-byte UTF-8 needs to be converted to surrogate pairs (2x 3-byte MUTF-8)
                 uint32_t codepoint = ((up[j] & 0x07) << 18) | ((up[j+1] & 0x3F) << 12) | ((up[j+2] & 0x3F) << 6) | (up[j+3] & 0x3F);
                 uint32_t u = codepoint - 0x10000;

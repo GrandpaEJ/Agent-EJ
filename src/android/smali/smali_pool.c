@@ -142,6 +142,10 @@ static int comp_proto_sig(const void *a, const void *b) {
     const char *sigA = *(const char **)a;
     const char *sigB = *(const char **)b;
     smali_ctx_def_t *ctx = s_sort_ctx;
+    if (!sigA || !sigB) {
+        if (sigA == sigB) return 0;
+        return sigA ? -1 : 1;
+    }
     const char *closeA = strchr(sigA, ')');
     const char *closeB = strchr(sigB, ')');
     const char *retA = closeA ? closeA + 1 : "V";
@@ -190,18 +194,30 @@ static int comp_proto_sig(const void *a, const void *b) {
     return 0;
 }
 
+static int field_key_split(const char *key, char **arrow, char **colon) {
+    *arrow = key ? strstr(key, "->") : NULL;
+    *colon = key ? strchr(key, ':') : NULL;
+    return (*arrow && *colon && *colon > *arrow + 2) ? 1 : 0;
+}
+
 static int comp_field_key(const void *a, const void *b) {
     const char *keyA = *(const char **)a;
     const char *keyB = *(const char **)b;
     smali_ctx_def_t *ctx = s_sort_ctx;
-    char *arrowA = strstr(keyA, "->");
-    char *colonA = strchr(keyA, ':');
+    char *arrowA = NULL, *colonA = NULL, *arrowB = NULL, *colonB = NULL;
+    /* Malformed pool keys exist in the wild (e.g. the "??" placeholder emitted
+     * for unresolvable refs). Grouping them instead of dereferencing a NULL
+     * "->" keeps qsort from segfaulting. */
+    int okA = field_key_split(keyA, &arrowA, &colonA);
+    int okB = field_key_split(keyB, &arrowB, &colonB);
+    if (!okA || !okB) {
+        if (okA != okB) return okA ? -1 : 1;
+        return strcmp(keyA ? keyA : "", keyB ? keyB : "");
+    }
     char *clsA = strndup(keyA, arrowA - keyA);
     char *nameA = strndup(arrowA + 2, colonA - (arrowA + 2));
     char *typeA = colonA + 1;
     
-    char *arrowB = strstr(keyB, "->");
-    char *colonB = strchr(keyB, ':');
     char *clsB = strndup(keyB, arrowB - keyB);
     char *nameB = strndup(arrowB + 2, colonB - (arrowB + 2));
     char *typeB = colonB + 1;
@@ -232,14 +248,23 @@ static int comp_method_key(const void *a, const void *b) {
     const char *keyA = *(const char **)a;
     const char *keyB = *(const char **)b;
     smali_ctx_def_t *ctx = s_sort_ctx;
-    char *arrowA = strstr(keyA, "->");
-    char *parenA = strchr(keyA, '(');
+    char *arrowA = keyA ? strstr(keyA, "->") : NULL;
+    char *parenA = keyA ? strchr(keyA, '(') : NULL;
+    char *arrowB = keyB ? strstr(keyB, "->") : NULL;
+    char *parenB = keyB ? strchr(keyB, '(') : NULL;
+    /* Same hardening as comp_field_key: unresolvable refs land here as
+     * placeholders without "->" and must not be dereferenced. */
+    if (!arrowA || !parenA || parenA < arrowA + 2 ||
+        !arrowB || !parenB || parenB < arrowB + 2) {
+        int okA = (arrowA && parenA && parenA > arrowA + 2);
+        int okB = (arrowB && parenB && parenB > arrowB + 2);
+        if (okA != okB) return okA ? -1 : 1;
+        return strcmp(keyA ? keyA : "", keyB ? keyB : "");
+    }
     char *clsA = strndup(keyA, arrowA - keyA);
     char *nameA = strndup(arrowA + 2, parenA - (arrowA + 2));
     char *protoA = parenA;
     
-    char *arrowB = strstr(keyB, "->");
-    char *parenB = strchr(keyB, '(');
     char *clsB = strndup(keyB, arrowB - keyB);
     char *nameB = strndup(arrowB + 2, parenB - (arrowB + 2));
     char *protoB = parenB;
@@ -554,9 +579,13 @@ if (ma[j].annot_count > 0) {
                     smali_insn_t *ins = &m->insns[k];
                     if (ins->ref_str) {
                         if (ins->kind == 3) {
-                            smali_pool_add(&ctx->fields, ins->ref_str);
+                            /* Unresolvable refs are emitted as "??" placeholders by
+                             * the disassembler; never let them into the pool. */
+                            if (strstr(ins->ref_str, "->"))
+                                smali_pool_add(&ctx->fields, ins->ref_str);
                         } else if (ins->kind == 4) {
-                            smali_pool_add(&ctx->methods, ins->ref_str);
+                            if (strstr(ins->ref_str, "->"))
+                                smali_pool_add(&ctx->methods, ins->ref_str);
                             char *paren = strchr(ins->ref_str, '(');
                             if (paren) {
                                 smali_pool_add(&ctx->protos, paren);
