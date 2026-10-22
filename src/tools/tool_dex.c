@@ -240,9 +240,14 @@ char* execute_read_dex(cJSON* args) {
             char *semi = strchr(class_line, ';');
             if (semi) {
                 *semi = '\0';
-                char *desc = strrchr(class_line, 'L');
-                if (desc) {
-                    desc++; // Skip the 'L'
+                /* The class descriptor is the last whitespace-delimited token of the
+                 * ".class <flags...> Lpkg/Name" line. Searching for the last 'L'
+                 * anywhere in the line mangles names and drops the package path
+                 * (e.g. "@DynamiteLoaderClassLoader" -> "oader"). */
+                char *desc = strrchr(class_line, ' ');
+                desc = desc ? desc + 1 : class_line;
+                if (*desc == 'L') desc++; // Skip the 'L' of the descriptor
+                if (*desc) {
                     char filepath[1024];
                     snprintf(filepath, sizeof(filepath), "%s/%s.smali", out_dir, desc);
                     
