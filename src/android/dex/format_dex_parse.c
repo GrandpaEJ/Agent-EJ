@@ -181,7 +181,14 @@ dex_ctx *dex_parse(const uint8_t *data, size_t size) {
     if (!data || size < 0x70) return NULL;
     uint32_t m0, m1;
     r32(data, &m0); r32(data + 4, &m1);
-    if (m0 != 0x0A786564 || m1 != 0x00353330) return NULL;
+    if (m0 != 0x0A786564) return NULL;
+    /* accept dex 035..039+ : bytes 4..7 are '0','3','<digit>','\0' */
+    if ((m1 & 0x0000FFFFu) != 0x00003330u) return NULL;
+    if (((m1 >> 24) & 0xFFu) != 0x00u) return NULL;
+    {
+        uint32_t dver = (m1 >> 16) & 0xFFu;
+        if (dver < '0' || dver > '9') return NULL;
+    }
 
     dex_ctx *ctx = calloc(1, sizeof(dex_ctx));
     if (!ctx) return NULL;
