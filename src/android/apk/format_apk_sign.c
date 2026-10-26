@@ -1,5 +1,6 @@
 #include "crypto.h"
 #include "formats.h"
+#include "der.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -280,6 +281,16 @@ char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const 
 
 // Phase 5: ZIP Injection (Full APK Signing process)
 int apk_sign_v1(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len) {
+
+    // Refuse to embed a certificate that does not match the signing key
+    // (issue #13): the resulting APK would fail v1 verification.
+    const uint8_t *use_cert = (custom_cert && custom_cert_len > 0) ? custom_cert : cert_der;
+    uint32_t use_cert_len = (custom_cert && custom_cert_len > 0) ? custom_cert_len : cert_der_len;
+    if (!der_cert_matches_key(key, use_cert, use_cert_len)) {
+        fprintf(stderr, "apk_sign_v1: certificate does not match the RSA signing key; "
+                        "supply a certificate matching the key via cert=/cert_path=\n");
+        return APK_SIGN_ERR_CERT_MISMATCH;
+    }
 
     zip_archive *za = zip_open(in_apk);
     if (!za) {

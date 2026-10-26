@@ -63,6 +63,8 @@ char* smali_flow_generate(smali_method_def_t *method, const char *method_name);
 
 // APK
 #include "crypto.h"
+/* apk_sign_v1/apk_sign_v2_v3 error: embedded certificate does not match the signing key */
+#define APK_SIGN_ERR_CERT_MISMATCH (-2)
 int apk_sign_v1(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len);
 int apk_sign_v2_v3(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len);
 char* generate_manifest(struct zip_archive *za, size_t *out_len);

@@ -20,8 +20,8 @@ uint8_t* generate_v2_pair(rsa_key *key, uint8_t *final_apk_digest, uint64_t *out
     uint32_t signed_data_v2_len = (4 + digests_len) + (4 + certs_len) + (4 + attr_len);
     
     uint32_t sig_algo_id = 0x0103;
-    uint32_t sig_len = 256;
-    uint32_t signatures_seq_len = 4 + 4 + 4 + sig_len; // 268
+    uint32_t sig_len = (uint32_t)(key->bits / 8);
+    uint32_t signatures_seq_len = 4 + 4 + 4 + sig_len;
     
     uint32_t pubkey_item_len = 4 + pubkey_len;
     
@@ -57,13 +57,14 @@ uint8_t* generate_v2_pair(rsa_key *key, uint8_t *final_apk_digest, uint64_t *out
     uint8_t rsa_hash[32];
     sha256(sd_v2, signed_data_v2_len, rsa_hash);
     uint8_t signature_v2[256];
+    if (sig_len > sizeof(signature_v2)) return NULL;
     rsa_sign_sha256(key, rsa_hash, signature_v2);
     
     // Continue building pair
     put_u32(&p, signatures_seq_len);
-    put_u32(&p, 4 + 4 + 256);
+    put_u32(&p, 4 + 4 + sig_len);
     put_u32(&p, sig_algo_id);
-    put_len_bytes(&p, signature_v2, 256);
+    put_len_bytes(&p, signature_v2, sig_len);
     put_len_bytes(&p, pubkey, pubkey_len);
     
     return pair;

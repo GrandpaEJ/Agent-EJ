@@ -43,28 +43,9 @@ static void compute_chunked_hash(FILE *fp, size_t start, size_t end, sha256_ctx 
     free(chunk_buf);
 }
 
-static uint8_t* extract_pubkey_from_cert(const uint8_t *cert, size_t cert_len, size_t *out_pubkey_len) {
-    const uint8_t oid[] = {0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01};
-    for (size_t i = 0; i < cert_len - sizeof(oid); i++) {
-        if (memcmp(cert + i, oid, sizeof(oid)) == 0) {
-            for (int j = i; j >= 0; j--) {
-                if (cert[j] == 0x30 && cert[j+1] == 0x82) {
-                    size_t seq_len = (cert[j+2] << 8) | cert[j+3];
-                    if (j + 4 + seq_len <= cert_len && i >= j && i < j + 4 + seq_len) {
-                        *out_pubkey_len = 4 + seq_len;
-                        uint8_t *pubkey = malloc(*out_pubkey_len);
-                        memcpy(pubkey, cert + j, *out_pubkey_len);
-                        return pubkey;
-                    }
-                }
-            }
-        }
-    }
-    return NULL;
-}
-
 #include "cert_der.h"
 #include "pubkey_der.h"
+#include "der.h"
 
 // Generate APK Signing Block v2 and/or v3
 int apk_sign_v2_v3(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len) {
@@ -125,22 +106,44 @@ int apk_sign_v2_v3(const char *in_apk, const char *out_apk, rsa_key *key, int do
     uint8_t final_apk_digest[32];
     sha256_final(&main_ctx, final_apk_digest);
     
+    // Pick the certificate/public key to embed, and refuse to sign unless it
+    // matches the private key the signature is actually made with (issue #13).
+    // With no custom certificate the built-in cert is used, but only when the
+    // built-in public key matches the signing key.
     const uint8_t *use_cert = cert_der;
     uint32_t use_cert_len = cert_der_len;
     const uint8_t *use_pubkey = pubkey_der;
     uint32_t use_pubkey_len = pubkey_der_len;
     uint8_t *extracted_pubkey = NULL;
-    
+
     if (custom_cert && custom_cert_len > 0) {
         use_cert = custom_cert;
         use_cert_len = custom_cert_len;
-        size_t e_len;
-        extracted_pubkey = extract_pubkey_from_cert(custom_cert, custom_cert_len, &e_len);
-        if (extracted_pubkey) {
-            use_pubkey = extracted_pubkey;
-            use_pubkey_len = e_len;
+        size_t e_len = 0;
+        extracted_pubkey = der_pubkey_from_cert(custom_cert, custom_cert_len, &e_len);
+        if (!extracted_pubkey) {
+            fprintf(stderr, "apk_sign_v2_v3: could not extract a public key from the supplied certificate\n");
+            return -1;
         }
+        use_pubkey = extracted_pubkey;
+        use_pubkey_len = (uint32_t)e_len;
     }
+
+    size_t key_spki_len = 0;
+    uint8_t *key_spki = der_spki_from_rsa(key, &key_spki_len);
+    if (!key_spki) {
+        fprintf(stderr, "apk_sign_v2_v3: could not derive the public key from the RSA signing key\n");
+        if (extracted_pubkey) free(extracted_pubkey);
+        return -1;
+    }
+    if (key_spki_len != use_pubkey_len || memcmp(key_spki, use_pubkey, key_spki_len) != 0) {
+        fprintf(stderr, "apk_sign_v2_v3: certificate does not match the RSA signing key; "
+                        "supply a certificate matching the key via cert=/cert_path=\n");
+        free(key_spki);
+        free(extracted_pubkey);
+        return APK_SIGN_ERR_CERT_MISMATCH;
+    }
+    free(key_spki);
     
     uint8_t *v2_pair = NULL, *v3_pair = NULL;
     uint64_t v2_len = 0, v3_len = 0;
