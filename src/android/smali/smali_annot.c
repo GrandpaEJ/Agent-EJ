@@ -4,6 +4,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+int smali_field_ref_valid(const char *ref) {
+    if (!ref || ref[0] != 'L') return 0;
+    const char *arrow = strstr(ref, "->");
+    if (!arrow || arrow == ref || arrow[-1] != ';') return 0;
+    const char *colon = strchr(arrow, ':');
+    if (!colon || colon <= arrow + 2) return 0;  /* the name must not be empty */
+    return colon[1] != '\0';                    /* the type must not be empty */
+}
+
 int smali_parse_annot_value(char **p, smali_annotation_elem_t *el, uint32_t line) {
     while (**p == ' ' || **p == '\t') (*p)++;
     if (**p == '"') {
@@ -64,6 +73,14 @@ int smali_parse_annot_value(char **p, smali_annotation_elem_t *el, uint32_t line
         free(tok);
         el->value_type = VALUE_TYPE_ENUM;
         el->value_str = smali_next_token(p);
+        if (!el->value_str) {
+            smali_fail_at(line, "malformed .enum value (expected Lclass;->name:type)");
+            return -1;
+        }
+        if (!smali_field_ref_valid(el->value_str)) {
+            smali_fail_at(line, "malformed .enum value '%s' (expected Lclass;->name:type)", el->value_str);
+            return -1;
+        }
         return 0;
     }
     if (tok[0] == 'L' || tok[0] == '[') {
@@ -74,6 +91,14 @@ int smali_parse_annot_value(char **p, smali_annotation_elem_t *el, uint32_t line
         } else if (arrow && strchr(arrow, ':')) {
             el->value_type = VALUE_TYPE_FIELD;
             el->value_str = tok;
+            if (!smali_field_ref_valid(tok)) {
+                smali_fail_at(line, "malformed field reference '%s' (expected Lclass;->name:type)", tok);
+                return -1;
+            }
+        } else if (arrow) {
+            /* "Lclass;->name" without a type is neither a type nor a field. */
+            smali_fail_at(line, "malformed field reference '%s' (expected Lclass;->name:type)", tok);
+            return -1;
         } else {
             el->value_type = VALUE_TYPE_TYPE;
             el->value_str = tok;

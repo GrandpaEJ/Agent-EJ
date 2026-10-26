@@ -275,7 +275,18 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                             } else if (strcmp(val_tok, ".enum") == 0) {
                                 val_type = VALUE_TYPE_ENUM; free(val_tok);
                                 val_str = smali_next_token(&p);
-                                if (val_str) has_init = 1;
+                                /* The reference is "Lclass;->name:type". Without
+                                 * the type the field cannot be resolved in the
+                                 * field pool, so the value would point at an
+                                 * arbitrary field of the DEX. */
+                                if (!val_str || !smali_field_ref_valid(val_str)) {
+                                    smali_fail_at(cur_line, "malformed .enum initializer '%s' (expected Lclass;->name:type)",
+                                                 val_str ? val_str : "");
+                                    free(val_str); free(name); free(type);
+                                    free(tok); free(text_copy);
+                                    return -1;
+                                }
+                                has_init = 1;
                             } else if (strncmp(val_tok + (val_tok[0] == '-'), "0x", 2) != 0 &&
                                        (val_tok[strlen(val_tok) - 1] == 'f' || val_tok[strlen(val_tok) - 1] == 'd')) {
                                 if (val_tok[strlen(val_tok) - 1] == 'd') {
