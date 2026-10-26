@@ -1,6 +1,7 @@
 #include "smali_parser.h"
 #include "smali_pool.h"
 #include "smali_writer.h"
+#include "smali_order.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,8 +36,9 @@ static int collect_smali_files(const char *dir, char ***files, int *count) {
     return 0;
 }
 
-int smali_assemble(const char *src_dir, const char *out_dex) {
+int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out) {
     if (!src_dir || !out_dex) return -1;
+    if (n_out) *n_out = 0;
 
     smali_ctx_def_t ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -55,10 +57,32 @@ int smali_assemble(const char *src_dir, const char *out_dex) {
         return -1;
     }
 
-    smali_pool_build_all(&ctx);
-    int ret = write_assembled_dex(&ctx, out_dex);
+    smali_order_classes(&ctx);
+
+    /* One DEX per run of classes that fits the 64K id tables; the sub-context
+     * borrows its slice of the class array, so only its pools are released here. */
+    int ret = 0;
+    uint32_t part = 0;
+    for (uint32_t start = 0; start < ctx.class_count && ret == 0; part++) {
+        uint32_t end = smali_next_dex_group(&ctx, start);
+        smali_ctx_def_t sub;
+        memset(&sub, 0, sizeof(sub));
+        sub.classes = ctx.classes + start;
+        sub.class_count = sub.class_cap = end - start;
+        char name[4096];
+        smali_dex_part_name(out_dex, part, name, sizeof(name));
+        smali_pool_build_all(&sub);
+        ret = write_assembled_dex(&sub, name);
+        smali_pool_free(&sub.strings); smali_pool_free(&sub.types); smali_pool_free(&sub.protos);
+        smali_pool_free(&sub.fields); smali_pool_free(&sub.methods);
+        start = end;
+    }
+    if (n_out) *n_out = (int)part;
 
     smali_ctx_free(&ctx);
-
     return ret;
+}
+
+int smali_assemble(const char *src_dir, const char *out_dex) {
+    return smali_assemble_n(src_dir, out_dex, NULL);
 }
