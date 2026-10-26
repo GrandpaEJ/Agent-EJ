@@ -43,19 +43,19 @@ static uint32_t resolve_register(uint32_t reg, uint32_t registers_count, uint32_
     return reg;
 }
 
-uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, uint16_t *out_buf) {
-    uint32_t *insn_offsets = malloc((m->insns_count + 1) * sizeof(uint32_t));
+void smali_compute_insn_offsets(smali_method_def_t *m, uint32_t *out) {
     uint32_t cur_offset = 0;
     for (uint32_t i = 0; i < m->insns_count; i++) {
-        if (m->insns[i].fmt == 101 || m->insns[i].fmt == 102 || m->insns[i].fmt == 103) {
-            if (cur_offset % 2 != 0) {
-                cur_offset++;
-            }
-        }
-        insn_offsets[i] = cur_offset;
+        if (m->insns[i].fmt >= 101 && m->insns[i].fmt <= 103 && (cur_offset & 1)) cur_offset++;
+        out[i] = cur_offset;
         cur_offset += get_insn_size_words(&m->insns[i]);
     }
-    insn_offsets[m->insns_count] = cur_offset;
+    out[m->insns_count] = cur_offset;
+}
+
+uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, uint16_t *out_buf) {
+    uint32_t *insn_offsets = malloc((m->insns_count + 1) * sizeof(uint32_t));
+    smali_compute_insn_offsets(m, insn_offsets);
 
     uint32_t write_idx = 0;
     for (uint32_t i = 0; i < m->insns_count; i++) {
@@ -67,9 +67,6 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
                     payload_label = m->labels[j].name;
                     break;
                 }
-            }
-            if (write_idx != insn_offsets[i]) {
-                printf("MISMATCH at %d: write_idx=%d, insn_off=%d\n", i, write_idx, insn_offsets[i]);
             }
             uint32_t switch_ins_off = 0;
             if (payload_label) {
@@ -128,9 +125,6 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
             continue;
         }
         if (ins->fmt == 103) {
-            if (write_idx != insn_offsets[i]) {
-                printf("MISMATCH 103 at %d: write_idx=%d, insn_off=%d\n", i, write_idx, insn_offsets[i]);
-            }
             /* array-data payload */
             if (write_idx % 2 != 0) {
                 out_buf[write_idx++] = 0x0000;
@@ -140,22 +134,19 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
             uint32_t count = ins->payload_data_len / ins->payload_element_width;
             out_buf[write_idx++] = count & 0xFFFF;
             out_buf[write_idx++] = (count >> 16) & 0xFFFF;
-            printf("ARRAY DATA WRITING %d bytes: ", ins->payload_data_len);
             for (uint32_t bi2 = 0; bi2 < ins->payload_data_len; bi2++) {
-                printf("%02x ", ins->payload_data[bi2]);
                 if (bi2 % 2 == 0) {
                     out_buf[write_idx] = ins->payload_data[bi2];
                 } else {
                     out_buf[write_idx++] |= (uint16_t)ins->payload_data[bi2] << 8;
                 }
             }
-            printf("\n");
             if (ins->payload_data_len % 2 != 0) write_idx++;
             continue;
         }
         
         if (write_idx != insn_offsets[i]) {
-            printf("MISMATCH normal at %d (fmt %d): write_idx=%d, insn_off=%d\n", i, ins->fmt, write_idx, insn_offsets[i]);
+            fprintf(stderr, "Error: encoder offset mismatch at insn %d (fmt %d): write_idx=%u, expected=%u\n", i, ins->fmt, write_idx, insn_offsets[i]);
             write_idx = insn_offsets[i];
         }
         
@@ -188,7 +179,17 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
             } else if (ins->kind == 4) {
                 ref_idx = smali_pool_find(&ctx->methods, ins->ref_str);
             }
-            if (ref_idx == 0xFFFFFFFF) ref_idx = 0;
+            if (ref_idx == 0xFFFFFFFF) {
+                /* An unresolvable reference ("??") must not silently become
+                 * index 0, that would point the instruction at an unrelated
+                 * member. Report it and keep the instruction out. */
+                fprintf(stderr, "Error: unresolved %s reference '%s' in %s%s (line %d)\n",
+                        ins->kind == 1 ? "string" : ins->kind == 2 ? "type" :
+                        ins->kind == 3 ? "field" : "method",
+                        ins->ref_str, m->name ? m->name : "?",
+                        m->signature ? m->signature : "", ins->line_number);
+                exit(1);
+            }
         }
 
         uint32_t vA = resolve_register(ins->vA, m->registers_count, m->ins_count);
@@ -197,7 +198,7 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
 
         if (ins->fmt == 1 || ins->fmt == 21 || ins->fmt == 2 || ins->fmt == 8 || ins->fmt == 10 || ins->fmt == 22) {
             if (vA > 15 || (ins->fmt != 2 && vB > 15)) {
-                fprintf(stderr, "Error: register limit exceeded (v%u or v%u > 15) at line %d\n", vA, vB, ins->line_number);
+                fprintf(stderr, "Error: register limit exceeded (v%u or v%u > 15) in %s%s regs %u ins %u op 0x%02x fmt %d line %d\n", vA, vB, m->name ? m->name : "?", m->signature ? m->signature : "", m->registers_count, m->ins_count, ins->op, ins->fmt, ins->line_number);
                 exit(1);
             }
         }
