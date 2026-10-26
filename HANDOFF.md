@@ -1,9 +1,14 @@
-# Agent-X — Handoff (issues #5, #7, #8, #13, #22, #24, #25)
+# Agent-X — Handoff (after the release of v0.8.2)
 
-**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `fix/open-issues-13-25-24-5-22-8`
-**Base:** `8fa5495` (= `origin/main` + PR #26 merge `cd3b20c` + CHANGELOG)
-**Status:** **All seven open issues are code-complete and verified.** #5 (the
-native `resources.arsc` encoder) was the last one and is finished.
+**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `main` (= `origin/main`)
+**Released:** **v0.8.2** — PR #27 (`82ddf91`) merged, release commit `3dbd0ff`,
+tag `v0.8.2` pushed.
+**Status:** **All seven issues are closed and the work is on `main`.** The only
+open issue is #28, a pre-existing annotation defect that was found on the way.
+
+**Branch `fix/open-issues-13-25-24-5-22-8` was kept** (not deleted) so that the
+individual commits cited in the issue comments stay reachable. It can go:
+`git push origin --delete fix/open-issues-13-25-24-5-22-8`.
 
 ---
 
@@ -25,23 +30,31 @@ native `resources.arsc` encoder) was the last one and is finished.
 
 ## 1. Issue inventory (evidence-based)
 
-All seven issues that were open on GitHub are now implemented on this branch.
+All seven issues that were open are closed. The commit hashes below are the ones
+of the branch; on `main` they live in the squash merge `82ddf91` (PR #27), and
+the branch is kept so the hashes stay reachable.
 
-| # | Title | State on this branch |
+| # | Title | State |
 |---|---|---|
-| **5** | Native `resources.arsc` encoder | 🟢 **fixed & verified** (`c1fbb13`, `ff006f8`, `9f5328a`, `0d70a1e`) — see §5 |
-| **13** | Native v3 APK signing: RSA signature does not verify | 🟢 **fixed & verified** (`3237469`, `fb90904`, `cdf3d8f`, `ac0914f`) |
-| **22** | `smali_encoder`: no register range validation per instruction format | 🟢 **fixed & verified** (`65e9c44`) |
-| **8** | Smali Assembler — Validation & Error Reporting | 🟢 **fixed & verified** (`48b2507`, `e05474e`) |
-| **7** | Smali Assembler — Debug Info (Line Numbers & Locals) | 🟢 **fixed & verified** (`55d14a4`) — read §4.4 |
-| **25** | `format_axml_encode`: gravity enum strings not parsed | ✅ **fixed** (`8d0ffed`) |
-| **24** | `format_apk_decode_arsc`: incomplete resource qualifier parsing | ✅ **fixed** (`cd92923`) |
+| **5** | Native `resources.arsc` encoder | ✅ **closed** — `c1fbb13`, `ff006f8`, `9f5328a`, `0d70a1e` — see §5 |
+| **13** | Native v3 APK signing: RSA signature does not verify | ✅ **closed** — `3237469`, `fb90904`, `cdf3d8f`, `ac0914f` |
+| **22** | `smali_encoder`: no register range validation per instruction format | ✅ **closed** — `65e9c44` |
+| **8** | Smali Assembler — Validation & Error Reporting | ✅ **closed** — `48b2507`, `e05474e` |
+| **7** | Smali Assembler — Debug Info (Line Numbers & Locals) | ✅ **closed** — `55d14a4` — read §4.4 |
+| **25** | `format_axml_encode`: gravity enum strings not parsed | ✅ **closed** — `8d0ffed` |
+| **24** | `format_apk_decode_arsc`: incomplete resource qualifier parsing | ✅ **closed** — `cd92923` |
+| **28** | *new* — annotation `.enum` written with an out-of-range field index | 🔴 **open** — see §4.5 |
 
 ---
 
-## 2. Commits on this branch
+## 2. Commits
+
+The branch carried 18 commits; PR #27 squashed them into `82ddf91` on `main`,
+and `3dbd0ff` is the release commit that opens the `0.8.2` section of the
+CHANGELOG.
 
 ```
+c1a75da docs(handoff): record the state of the open issues after the encoder work
 0d70a1e test(arsc): add a regression test for the resource table encoder
 9f5328a feat(arsc): expose the resource table encoder as a tool
 ff006f8 feat(arsc): write a resource table back out of the model
@@ -60,6 +73,14 @@ efb7dbc fix(smali): report assembler errors through the tool layer instead of ex
 cd92923 fix(apk): parse the full ResTable_config for resource qualifiers
 8d0ffed fix(axml): parse gravity enum strings when encoding AXML
 8fa5495 docs(changelog): record the DEX 037 support and hardening work   <- base
+```
+
+On `main`:
+
+```
+3dbd0ff release: bump version to 0.8.2
+82ddf91 feat: native resources.arsc encoder, signed APK fix and smali assembler hardening (#27)
+8fa5495 docs(changelog): record the DEX 037 support and hardening work
 ```
 
 ---
@@ -243,7 +264,7 @@ Spec reference (AOSP "Dalvik executable format", fetched during this session):
 disassembles both files to byte-identical smali**, with the same parameter names,
 local names and local types.
 
-### 4.5 Pre-existing defect found, **not** fixed — needs its own issue
+### 4.5 Pre-existing defect found, **not** fixed — issue #28 is open
 
 `ann3` and `ann4` produce a DEX that **baksmali rejects**:
 
@@ -256,6 +277,10 @@ java.lang.IndexOutOfBoundsException: Invalid field index 0, not in [0, 0)
 An annotation `.enum` value is written with a field index that is out of range.
 Reproduced identically on `8fa5495` (verified with `git stash`), so it is **not**
 caused by this branch. It is in the annotation writer, not in the parser.
+
+It was reported as **issue #28** with the reproduction steps. The writer has to
+resolve the enum to a real field of the annotation's class and fall back to a
+defined behaviour when the class does not declare it.
 
 ### 4.6 Known pre-existing problems in this area (found, not fixed)
 
@@ -368,12 +393,15 @@ Each script takes the path of the binary as its first argument and defaults to
 | `dbgdecode.py <dex>` | decodes a debug_info section (my own decoder — it reads the indices as plain uleb128, so it disagrees with the format on the uleb128p1 fields; use baksmali instead) |
 | `dbgcmp.py <a.dex> <b.dex>` | compares the debug_info sections of two DEX files |
 
-### 6.3 Current regression status (all with the current binary)
+### 6.3 Current regression status
+
+Run on the merged `main` of the **v0.8.2** release, with a cold build
+(`rm -rf .zig-cache && make clean && make release`):
 
 ```
 27 smali fixtures assemble           → 27 OK, 0 FAIL
 28 DEX files pass the G7/G8 invariants → 28 OK
-baksmali parses 26 of them            → ann3/ann4 fail (pre-existing, §4.5)
+baksmali parses 26 of them            → ann3/ann4 fail (pre-existing, §4.5 → #28)
 tests/test_apk_signing.sh             → 12 pass, 0 fail
 tests/test_smali_register_limits.sh   → 21 pass, 0 fail
 tests/test_smali_diagnostics.sh       → 7 pass, 0 fail
@@ -419,49 +447,65 @@ ARSC_TEST_APKS="…" ./tests/test_arsc_encode.sh     # 22/22, no ASan/UBSan/LSan
 
 ---
 
-## 7. Final steps
+## 7. What is left
 
-1. ~~**Issue #5** — the native `resources.arsc` encoder~~ **done**, see §5.
-2. **Open a new issue** for the ann3/ann4 annotation defect (§4.5).
-3. **Close issues #13, #22, #8, #7, #25, #24 and #5** on GitHub with a comment
-   that points at the commits and the evidence above.
-4. ~~**CHANGELOG.md**~~ **done** (`e0f9d2f`), the entries are under `## [Unreleased]`.
-5. **Version bump** — the project requires semantic versioning + a git tag per
-   release. `0.8.1` is the current tag; this work is a bug-fix + feature set →
-   **`0.8.2`**. The release commit renames `## [Unreleased]` to `## [0.8.2]` and
-   `git tag v0.8.2` follows it (the pattern of `04be10b`).
-6. **Full regression before pushing**:
-   ```bash
-   cd /home/grandpa/me/code/c-lang/Agent-X
-   rm -rf .zig-cache && make clean && make release
-   for t in t1 t2 t3 t4 ann ann2 ann3 ann4 bulk cls big huge p2 p3 p4 mref onlymethods \
-            fieldkey x_field_arrow_nocolon x_enum_qmark x_method_arrow_noparen proto70 \
-            tldedup proto300 proto300b dbgcmp dbg2; do
-     d=/tmp/opencode/$t; [ -d "$d" ] || continue
-     ./agent-x tool smali_assemble src_dir=$d out_dex=/tmp/opencode/final_$t.dex >/dev/null 2>&1 \
-       && echo "OK $t" || echo "FAIL $t"
-   done
-   ./tests/test_apk_signing.sh
-   ./tests/test_smali_register_limits.sh
-   ./tests/test_smali_diagnostics.sh
-   ARSC_TEST_APKS="$(ls ~/Downloads/Telegram\ Desktop/*.apk)" ./tests/test_arsc_encode.sh
-   python3 tests/dex_invariants.py /tmp/opencode/final_*.dex
-   ```
-   Plus an **ASan/UBSan/LSan** pass (cold cache, so the diagnostics are not masked):
-   ```bash
-   rm -rf .zig-cache && make clean && make CC="gcc -fsanitize=address,undefined -fno-omit-frame-pointer -g" \
+Everything that was on the list is done:
+
+| # | Item | State |
+|---|---|---|
+| 1 | Issue #5 — the native `resources.arsc` encoder | ✅ done, §5 |
+| 2 | Open an issue for the ann3/ann4 annotation defect | ✅ **#28** is open |
+| 3 | Close #13, #22, #8, #7, #25, #24, #5 on GitHub | ✅ all closed with evidence |
+| 4 | CHANGELOG entries | ✅ `e0f9d2f`, under `## [0.8.2]` |
+| 5 | Version bump + tag | ✅ `3dbd0ff` + `v0.8.2` pushed |
+| 6 | Full regression before pushing | ✅ see §6.3 — 27/28/12/21/7/22 all green, ASan clean |
+| 7 | Push + PR + merge | ✅ PR #27 merged as `82ddf91` |
+
+### The next pieces of work
+
+1. **Issue #28** — the annotation `.enum` writer (§4.5). Small, isolated, and it
+   breaks baksmali on the `ann3`/`ann4` fixtures.
+2. **The v1 (JAR) signing path** (§3.4) — it still uses SHA-1, which Android 7+
+   rejects, and `jarsigner` reports "nonexistent signed entries" for every
+   entry. Needs its own issue.
+3. **An XML → ARSC compiler** (§5.5) — the natural follow-up to the encoder:
+   `decode_apk` writes the resources as XML and `build_apk` copies the original
+   `resources.arsc` back, so a value that was edited in `res/values/strings.xml`
+   is still lost. The model and the writer are the part a compiler needs.
+4. **The Small File Rule violations** (§4.6) — `smali_writer.c` 1229 LOC,
+   `smali_pool.c` 755, `smali_parser.c` 633, `smali_encoder.c` 292 against a
+   limit of 250.
+5. **`smali_pool.c` `comp_field_key` / `comp_method_key`** — the strict weak
+   ordering concern (malformed keys use `strcmp` while valid keys use a numeric
+   index), a known LOW finding from the earlier PR review.
+
+### The full regression, for the next run
+
+```bash
+cd /home/grandpa/me/code/c-lang/Agent-X
+rm -rf .zig-cache && make clean && make release
+for t in t1 t2 t3 t4 ann ann2 ann3 ann4 bulk cls big huge p2 p3 p4 mref onlymethods \
+         fieldkey x_field_arrow_nocolon x_enum_qmark x_method_arrow_noparen proto70 \
+         tldedup proto300 proto300b dbgcmp dbg2; do
+  d=/tmp/opencode/$t; [ -d "$d" ] || continue
+  ./agent-x tool smali_assemble src_dir=$d out_dex=/tmp/opencode/final_$t.dex >/dev/null 2>&1 \
+    && echo "OK $t" || echo "FAIL $t"
+done
+./tests/test_apk_signing.sh
+./tests/test_smali_register_limits.sh
+./tests/test_smali_diagnostics.sh
+ARSC_TEST_APKS="$(ls ~/Downloads/Telegram\ Desktop/*.apk)" ./tests/test_arsc_encode.sh
+python3 tests/dex_invariants.py /tmp/opencode/final_*.dex
+```
+
+Plus an **ASan/UBSan/LSan** pass (cold cache, so the diagnostics are not masked):
+
+```bash
+rm -rf .zig-cache && make clean && make CC="gcc -fsanitize=address,undefined -fno-omit-frame-pointer -g" \
                                             LDFLAGS="-fsanitize=address,undefined"
-   ```
-   Plus `baksmali d` on the output and the DEX G7/G8 invariants.
-7. **Push + PR + merge**:
-   ```bash
-   git push -u origin fix/open-issues-13-25-24-5-22-8
-   gh pr create --base main --title "..." --body "..."
-   gh pr merge <n> --squash
-   ```
-   The PR body should carry the evidence: the apksigner output, the 21/7/12/22
-   test results, the baksmali round trip, the type-list count and the 17 APK
-   byte-identical resource tables.
+```
+
+Plus `baksmali d` on the output and the DEX G7/G8 invariants.
 
 ---
 
