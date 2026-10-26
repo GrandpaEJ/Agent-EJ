@@ -1,5 +1,6 @@
 #include "smali_value.h"
 #include "smali_pool.h"
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -85,7 +86,11 @@ void write_encoded_value(smali_buf_t *b, smali_ctx_def_t *ctx, smali_annotation_
     }
     case VALUE_TYPE_ENUM: {
         uint32_t fidx = el->value_str ? smali_pool_find(&ctx->fields, el->value_str) : 0;
-        if (fidx == 0xFFFFFFFF) fidx = 0;
+        if (fidx == 0xFFFFFFFF) {
+            fprintf(stderr, "WARNING: unresolved enum reference '%s'\n",
+                    el->value_str ? el->value_str : "(null)");
+            fidx = 0;
+        }
         int nb = 2;
         if (fidx > 0xFFFF) nb = 3;
         buf_write_u8(b, ((nb - 1) << 5) | VALUE_TYPE_ENUM);
@@ -94,7 +99,11 @@ void write_encoded_value(smali_buf_t *b, smali_ctx_def_t *ctx, smali_annotation_
     }
     case VALUE_TYPE_FIELD: {
         uint32_t fidx = el->value_str ? smali_pool_find(&ctx->fields, el->value_str) : 0;
-        if (fidx == 0xFFFFFFFF) fidx = 0;
+        if (fidx == 0xFFFFFFFF) {
+            fprintf(stderr, "WARNING: unresolved field reference '%s'\n",
+                    el->value_str ? el->value_str : "(null)");
+            fidx = 0;
+        }
         int nb = 2;
         if (fidx > 0xFFFF) nb = 3;
         buf_write_u8(b, ((nb - 1) << 5) | VALUE_TYPE_FIELD);

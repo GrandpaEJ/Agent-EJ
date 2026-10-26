@@ -320,23 +320,31 @@ static int comp_method_key(const void *a, const void *b) {
     return (pIdxA < pIdxB) ? -1 : 1;
 }
 
+/* Add an enum reference ("Lclass;->name:type") to the field pool and its
+ * parts to the type and the string pool. The field pool is keyed by the
+ * whole reference, so the reference has to be there for the encoded value
+ * to point at the right field. */
+static void pool_add_enum_ref(smali_ctx_def_t *ctx, const char *ref) {
+    if (!ref) return;
+    const char *arrow = strstr(ref, "->");
+    const char *colon = strrchr(ref, ':');
+    if (!arrow || !colon || colon <= arrow + 2) return;
+    smali_pool_add(&ctx->fields, ref);
+    char *cls = strndup(ref, arrow - ref);
+    char *typ = strdup(colon + 1);
+    char *name = strndup(arrow + 2, colon - (arrow + 2));
+    smali_pool_add(&ctx->types, cls); smali_pool_add(&ctx->strings, cls);
+    smali_pool_add(&ctx->types, typ); smali_pool_add(&ctx->strings, typ);
+    smali_pool_add(&ctx->strings, name);
+    free(cls); free(typ); free(name);
+}
+
 static void pool_add_annotation_elem(smali_ctx_def_t *ctx, smali_annotation_elem_t *el) {
     if (el->name) smali_pool_add(&ctx->strings, el->name);
     if (el->value_type == VALUE_TYPE_ENUM && el->value_str) {
         /* Only well-formed "class->name:type" keys may enter the field pool;
          * the writer and the comparator both require that shape. */
-        char *arrow = strstr(el->value_str, "->");
-        char *colon = strrchr(el->value_str, ':');
-        if (arrow && colon && colon > arrow + 2) {
-            smali_pool_add(&ctx->fields, el->value_str);
-            char *cls = strndup(el->value_str, arrow - el->value_str);
-            char *typ = strndup(colon + 1, strlen(colon + 1));
-            char *name = strndup(arrow + 2, colon - (arrow + 2));
-            smali_pool_add(&ctx->types, cls); smali_pool_add(&ctx->strings, cls);
-            smali_pool_add(&ctx->types, typ); smali_pool_add(&ctx->strings, typ);
-            smali_pool_add(&ctx->strings, name);
-            free(cls); free(typ); free(name);
-        }
+        pool_add_enum_ref(ctx, el->value_str);
     }
     if (el->value_type == VALUE_TYPE_TYPE && el->value_str)
         smali_pool_add(&ctx->types, el->value_str);
@@ -456,8 +464,12 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
                     smali_pool_add(&ctx->strings, f->value_str);
                 else if (f->value_type == VALUE_TYPE_TYPE && f->value_str)
                     smali_pool_add(&ctx->strings, f->value_str);
-                else if (f->value_type == VALUE_TYPE_ENUM && f->value_str)
+                else if (f->value_type == VALUE_TYPE_ENUM && f->value_str) {
+                    /* The initializer names a field: it has to be in the field
+                     * pool, otherwise the encoded value points at field 0. */
+                    pool_add_enum_ref(ctx, f->value_str);
                     smali_pool_add(&ctx->strings, f->value_str);
+                }
             }
         }
         for (uint32_t j = 0; j < c->instance_field_count; j++) {
