@@ -1,9 +1,10 @@
 #include "smali_types.h"
 #include "smali_pool.h"
+#include "smali_annot.h"
 #include <stdlib.h>
 #include <string.h>
 
-static void free_annot_elem(smali_annotation_elem_t *e) {
+void smali_annot_elem_free(smali_annotation_elem_t *e) {
     if (!e) return;
     free(e->name);
     free(e->type);
@@ -12,21 +13,21 @@ static void free_annot_elem(smali_annotation_elem_t *e) {
     smali_annot_val_t *node = e->arr_head;
     while (node) {
         smali_annot_val_t *next = node->next;
-        free_annot_elem(&node->elem);
+        smali_annot_elem_free(&node->elem);
         free(node);
         node = next;
     }
     if (e->sub_elems) {
         for (int i = 0; i < e->annot_elem_count; i++)
-            free_annot_elem(&e->sub_elems[i]);
+            smali_annot_elem_free(&e->sub_elems[i]);
         free(e->sub_elems);
     }
 }
 
-static void free_annot(smali_annotation_t *a) {
+void smali_annot_free(smali_annotation_t *a) {
     free(a->type);
     for (uint32_t i = 0; i < a->elem_count; i++)
-        free_annot_elem(&a->elems[i]);
+        smali_annot_elem_free(&a->elems[i]);
 }
 
 static void free_method(smali_method_def_t *m) {
@@ -62,12 +63,12 @@ static void free_method(smali_method_def_t *m) {
     free(m->local_types);
     free(m->local_sigs);
     free(m->local_regs);
-    for (uint32_t i = 0; i < m->annot_count; i++) free_annot(&m->annots[i]);
+    for (uint32_t i = 0; i < m->annot_count; i++) smali_annot_free(&m->annots[i]);
     free(m->annots);
     for (uint32_t i = 0; i < m->param_name_count; i++) {
         if (m->param_annots && m->param_annots[i]) {
             for (uint32_t k = 0; k < m->param_annot_counts[i]; k++)
-                free_annot(&m->param_annots[i][k]);
+                smali_annot_free(&m->param_annots[i][k]);
             free(m->param_annots[i]);
         }
     }
@@ -80,7 +81,7 @@ static void free_field(smali_field_def_t *f) {
     free(f->type);
     free(f->value_str);
     free(f->array_vals);
-    for (uint32_t i = 0; i < f->annot_count; i++) free_annot(&f->annots[i]);
+    for (uint32_t i = 0; i < f->annot_count; i++) smali_annot_free(&f->annots[i]);
     free(f->annots);
 }
 
@@ -98,9 +99,9 @@ static void free_class(smali_class_def_t *c) {
     free(c->direct_methods);
     for (uint32_t i = 0; i < c->virtual_method_count; i++) free_method(&c->virtual_methods[i]);
     free(c->virtual_methods);
-    for (uint32_t i = 0; i < c->annot_count; i++) free_annot(&c->annots[i]);
+    for (uint32_t i = 0; i < c->annot_count; i++) smali_annot_free(&c->annots[i]);
     free(c->annots);
-    for (uint32_t i = 0; i < c->field_annot_count; i++) free_annot(&c->field_annots[i]);
+    for (uint32_t i = 0; i < c->field_annot_count; i++) smali_annot_free(&c->field_annots[i]);
     free(c->field_annots);
 }
 
