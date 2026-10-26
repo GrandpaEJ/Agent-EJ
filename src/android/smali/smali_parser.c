@@ -7,6 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Read the next token, skipping the line breaks as well. */
+static char *next_token_over_lines(char **p) {
+    while (**p == ' ' || **p == '\t' || **p == '\r' || **p == '\n') (*p)++;
+    return smali_next_token(p);
+}
+
 /* Move an annotation into an annotation list. The struct is moved, not copied:
  * the pointers inside it belong to the list from now on. */
 static void annot_push(smali_annotation_t **list, uint32_t *count, uint32_t *cap,
@@ -322,53 +328,40 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                             p = save_p; free(inner_tok); break;
                         }
                         if (strcmp(inner_tok, ".annotation") == 0) {
-                            if (field->annot_count >= field->annot_cap) {
-                                field->annot_cap = field->annot_cap ? field->annot_cap * 2 : 4;
-                                field->annots = realloc(field->annots, field->annot_cap * sizeof(smali_annotation_t));
+                            /* The block belongs to the field only when the
+                             * ".end field" terminator closes it. Without that
+                             * terminator it is a class level annotation, which
+                             * is how the reference assembler reads it too. */
+                            smali_annotation_t ann;
+                            memset(&ann, 0, sizeof(ann));
+                            ann.visibility = 1;
+                            if (smali_parse_annot_block(&p, &ann, cur_line) != 0) {
+                                smali_annot_free(&ann);
+                                free(inner_tok); free(tok); free(text_copy);
+                                return -1;
                             }
-                            smali_annotation_t *ann = &field->annots[field->annot_count++];
-                            memset(ann, 0, sizeof(*ann));
-                            ann->visibility = 1;
-                                char *vis_tok = smali_next_token(&p);
-                                if (vis_tok) {
-                                    if (strcmp(vis_tok, "runtime") == 0) ann->visibility = 1;
-                                    else if (strcmp(vis_tok, "build") == 0) ann->visibility = 0;
-                                    else if (strcmp(vis_tok, "system") == 0) ann->visibility = 2;
-                                    else { ann->type = vis_tok; vis_tok = NULL; }
-                                    if (vis_tok) free(vis_tok);
-                                }
-                                if (!ann->type) ann->type = smali_next_token(&p);
-                                while (*p) {
-                                    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-                                    if (*p == '#') { char *nl = smali_eol(p); p = nl ? nl + 1 : p + strlen(p); continue; }
-                                    char *elem_tok = smali_next_token(&p);
-                                    if (!elem_tok) break;
-                                    if (strcmp(elem_tok, ".end") == 0) { char *at = smali_next_token(&p); if (at) free(at); free(elem_tok); break; }
-                                    char *eq_tok = smali_next_token(&p);
-                                    if (eq_tok && strcmp(eq_tok, "=") == 0) {
-                                        free(eq_tok);
-                                        if (ann->elem_count < MAX_ANNOT_ELEMS) {
-                                            smali_annotation_elem_t *el = &ann->elems[ann->elem_count];
-                                            memset(el, 0, sizeof(*el));
-                                            el->name = elem_tok;
-                                            if (smali_parse_annot_value(&p, el, cur_line) != 0) {
-                                                smali_annot_elem_free(el);
-                                                free(inner_tok); free(tok); free(text_copy);
-                                                return -1;
-                                            }
-                                            ann->elem_count++;
-                                        } else { free(elem_tok); }
-                                    } else {
-                                        if (eq_tok) free(eq_tok);
-                                        free(elem_tok);
-                                    }
-                                }
-                                free(inner_tok);
-                                /* "tok" belongs to the class level loop: it is
-                                 * released there. Releasing it here as well
-                                 * freed it twice and the second use read the
-                                 * recycled memory. */
+                            char *after_block = p;
+                            char *look = p;
+                            char *end_tok = next_token_over_lines(&look);
+                            char *end_sub = end_tok ? next_token_over_lines(&look) : NULL;
+                            int closes_field = end_tok && end_sub &&
+                                              strcmp(end_tok, ".end") == 0 &&
+                                              strcmp(end_sub, "field") == 0;
+                            if (end_tok) free(end_tok);
+                            if (end_sub) free(end_sub);
+                            free(inner_tok);
+                            if (closes_field) {
+                                annot_push(&field->annots, &field->annot_count,
+                                           &field->annot_cap, &ann);
+                                p = look;
                                 continue;
+                            }
+                            /* A class level annotation: hand it over and let
+                             * the class level loop continue after the block. */
+                            annot_push(&curr->annots, &curr->annot_count,
+                                       &curr->annot_cap, &ann);
+                            p = after_block;
+                            break;
                         }
                         p = save_p;
                         free(inner_tok);
