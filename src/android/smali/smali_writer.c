@@ -1110,6 +1110,32 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         entries[entry_count++] = (map_item_entry_t){0x2001, total_code_count, first_code_off};
     }
 
+    /* The debug information of a method follows its code item; the map has to
+     * list the section, otherwise the map does not describe the file. */
+    uint32_t first_debug_off = 0;
+    uint32_t debug_info_count = 0;
+    for (uint32_t i = 0; i < class_count; i++) {
+        for (uint32_t j = 0; j < ctx->classes[i].direct_method_count; j++) {
+            uint32_t code_off = direct_code_offsets[i] ? direct_code_offsets[i][j] : 0;
+            if (!code_off) continue;
+            uint32_t dbg = *(uint32_t *)(b.buf + code_off + 8);
+            if (!dbg) continue;
+            debug_info_count++;
+            if (first_debug_off == 0 || dbg < first_debug_off) first_debug_off = dbg;
+        }
+        for (uint32_t j = 0; j < ctx->classes[i].virtual_method_count; j++) {
+            uint32_t code_off = virtual_code_offsets[i] ? virtual_code_offsets[i][j] : 0;
+            if (!code_off) continue;
+            uint32_t dbg = *(uint32_t *)(b.buf + code_off + 8);
+            if (!dbg) continue;
+            debug_info_count++;
+            if (first_debug_off == 0 || dbg < first_debug_off) first_debug_off = dbg;
+        }
+    }
+    if (debug_info_count > 0) {
+        entries[entry_count++] = (map_item_entry_t){0x2003, debug_info_count, first_debug_off};
+    }
+
     if (class_count > 0) {
         entries[entry_count++] = (map_item_entry_t){0x2000, class_count, class_data_offsets[0]};
     }

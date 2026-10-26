@@ -149,6 +149,17 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
             char *reg_tok = smali_next_token(&start);
             char *name_tok = smali_next_token(&start);
             char *type_tok = smali_next_token(&start);
+            /* ".local v0, "name": <type>" - the colon separates the name from
+             * the type. The lexer keeps a leading colon with its token, so
+             * the type is either glued to it or in the next token. */
+            if (type_tok && type_tok[0] == ':') {
+                if (type_tok[1] != '\0') {
+                    memmove(type_tok, type_tok + 1, strlen(type_tok));
+                } else {
+                    free(type_tok);
+                    type_tok = smali_next_token(&start);
+                }
+            }
             if (reg_tok && name_tok && type_tok) {
                 m->local_regs = realloc(m->local_regs, (m->local_count + 1) * sizeof(uint32_t));
                 m->local_names = realloc(m->local_names, (m->local_count + 1) * sizeof(char *));
@@ -157,10 +168,14 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                 m->local_regs[m->local_count] = smali_parse_register(reg_tok);
                 m->local_names[m->local_count] = strdup(name_tok);
                 m->local_types[m->local_count] = strdup(type_tok);
+                /* A signature is only present when it follows an '='. */
                 char *sig_tok = smali_next_token(&start);
                 if (sig_tok && strcmp(sig_tok, "=") == 0) {
                     free(sig_tok);
                     sig_tok = smali_next_token(&start);
+                } else {
+                    free(sig_tok);
+                    sig_tok = NULL;
                 }
                 m->local_sigs[m->local_count] = sig_tok ? strdup(sig_tok) : NULL;
                 if (sig_tok) free(sig_tok);
