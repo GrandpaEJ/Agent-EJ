@@ -463,7 +463,10 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                                     }
                                 }
                                 free(inner_tok);
-                                free(tok);
+                                /* "tok" belongs to the class level loop: it is
+                                 * released there. Releasing it here as well
+                                 * freed it twice and the second use read the
+                                 * recycled memory. */
                                 continue;
                         }
                         p = save_p;
