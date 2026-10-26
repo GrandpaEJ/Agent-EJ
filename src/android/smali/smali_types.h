@@ -46,7 +46,8 @@ typedef struct {
     char *ref_str;
     int64_t lit;
     char *label_target;
-    int line_number;
+    int line_number;   /* nearest .line directive (-1 when the method has none) */
+    int src_line;      /* physical line in the .smali source (1-based) */
 
     char **payload_targets;
     uint32_t payload_targets_count;

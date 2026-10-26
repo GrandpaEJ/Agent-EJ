@@ -49,11 +49,23 @@ int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out) {
     int file_count = 0;
     collect_smali_files(src_dir, &files, &file_count);
 
+    int ret = 0;
     for (int i = 0; i < file_count; i++) {
-        parse_smali_file_path(&ctx, files[i]);
+        /* A parse error aborts the assembly: emitting a DEX that silently
+         * dropped the broken file would hide the defect. */
+        if (parse_smali_file_path(&ctx, files[i]) != 0) {
+            if (!smali_last_error()[0])
+                smali_fail("failed to parse %s", files[i]);
+            ret = -1;
+        }
         free(files[i]);
     }
     free(files);
+
+    if (ret != 0) {
+        smali_ctx_free(&ctx);
+        return -1;
+    }
 
     if (ctx.class_count == 0) {
         return -1;
@@ -63,7 +75,6 @@ int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out) {
 
     /* One DEX per run of classes that fits the 64K id tables; the sub-context
      * borrows its slice of the class array, so only its pools are released here. */
-    int ret = 0;
     uint32_t part = 0;
     for (uint32_t start = 0; start < ctx.class_count && ret == 0; part++) {
         uint32_t end = smali_next_dex_group(&ctx, start);

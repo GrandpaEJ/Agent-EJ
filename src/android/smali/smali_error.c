@@ -17,6 +17,17 @@ int smali_fail(const char *fmt, ...) {
     return -1;
 }
 
+int smali_fail_at(uint32_t line, const char *fmt, ...) {
+    char detail[SMALI_MSG_MAX];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(detail, sizeof(detail), fmt, ap);
+    va_end(ap);
+    snprintf(s_msg, sizeof(s_msg), "%s:%u: %s", s_src, (unsigned)line, detail);
+    fprintf(stderr, "Error: %s\n", s_msg);
+    return -1;
+}
+
 void smali_set_error(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
