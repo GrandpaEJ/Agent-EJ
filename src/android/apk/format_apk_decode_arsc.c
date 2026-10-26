@@ -1,72 +1,11 @@
 #include "formats.h"
 #include "../arsc/format_arsc_internal.h"
+#include "format_apk_config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-
-// Build Android resource qualifier string from ResTable_config (at chunk+20)
-static void build_config_str(const uint8_t *chunk, char *out, size_t out_sz) {
-    out[0] = '\0';
-    uint32_t cfg_sz = arsc_r32(chunk + 20);
-    if (cfg_sz < 20) return;
-    
-    // Fields at standard offsets in ResTable_config for cfg_sz >= 56
-    uint16_t density = arsc_r16(chunk + 34);  // offset 14 from config start
-    uint8_t ui_mode = chunk[49];               // offset 29 (byte 29)
-    uint16_t sdk = arsc_r16(chunk + 44);       // offset 24 from config start
-    uint8_t screen_layout = chunk[48];         // offset 28 (byte 28)
-    
-    // Check if default config (all zeros after size)
-    if (density == 0 && ui_mode == 0 && sdk == 0) return;
-    
-    // Build qualifier segments in standard order
-    char buf[256] = "";
-    
-    // Layout direction: screen_layout bit 3 = 0x08 for RTL? Let me check.
-    // Actually layout direction is at screenLayout2, not screenLayout.
-    // Skip for now - handle the common ones.
-    
-    // Density
-    if (density != 0 && density != 0xFFFF) {
-        const char *dstr = NULL;
-        if (density == 120) dstr = "ldpi";
-        else if (density == 160) dstr = "mdpi";
-        else if (density == 213) dstr = "tvdpi";
-        else if (density == 240) dstr = "hdpi";
-        else if (density == 280) dstr = "280dpi";
-        else if (density == 320) dstr = "xhdpi";
-        else if (density == 360) dstr = "360dpi";
-        else if (density == 400) dstr = "400dpi";
-        else if (density == 420) dstr = "420dpi";
-        else if (density == 480) dstr = "xxhdpi";
-        else if (density == 560) dstr = "560dpi";
-        else if (density == 640) dstr = "xxxhdpi";
-        if (dstr) {
-            if (buf[0]) strcat(buf, "-");
-            strcat(buf, dstr);
-        }
-    }
-    
-    // UI mode (night)
-    if (ui_mode & 0x20) {
-        if (buf[0]) strcat(buf, "-");
-        strcat(buf, "night");
-    }
-    
-    // SDK version (must be last)
-    if (sdk != 0) {
-        char sv[32];
-        snprintf(sv, sizeof(sv), "-v%u", sdk);
-        if (buf[0]) strcat(buf, sv);
-        else snprintf(buf, sizeof(buf), "%s", sv + 1); // skip leading "-"
-    }
-    
-    if (buf[0]) {
-        snprintf(out, out_sz, "-%s", buf);
-    }
-}
 
 static int mkdir_p(const char *path) {
     char tmp[1024];
@@ -274,7 +213,7 @@ int arsc_decode_apk(const char *out_dir) {
                 
                 // Build config qualifier from ResTable_config (at chunk+20)
                 char cfg_str[128] = "";
-                build_config_str(arsc->data + poff, cfg_str, sizeof(cfg_str));
+                apk_build_config_str(arsc->data + poff, cfg_str, sizeof(cfg_str));
                 
                 // Determine directory: res/values/ for value types, res/{type}/ for resources
                 static const char *value_types[] = {"string","bool","integer","id","style","dimen","attr","public","array","plurals","color","bools","integers","values",NULL};
