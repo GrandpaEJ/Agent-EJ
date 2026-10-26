@@ -118,7 +118,7 @@ void flow_fmt_insn(const smali_insn_t *ins, char *b, size_t sz, int with_line) {
         case 0: snprintf(b, sz, "%s%s", prefix, nm); break;
         case 1: case 23: case 24:
             snprintf(b, sz, "%s%s %s, %s", prefix, nm, r0, r1); break;
-        case 2: snprintf(b, sz, "%s%s %s, #%d", prefix, nm, r0, ins->lit); break;
+        case 2: snprintf(b, sz, "%s%s %s, #%lld", prefix, nm, r0, (long long)ins->lit); break;
         case 3: snprintf(b, sz, "%s%s %s", prefix, nm, r0); break;
         case 4: case 5: case 6:
             snprintf(b, sz, "%s%s :%s", prefix, nm, ins->label_target ? ins->label_target : "?"); break;
@@ -131,9 +131,9 @@ void flow_fmt_insn(const smali_insn_t *ins, char *b, size_t sz, int with_line) {
         case 10:
             snprintf(b, sz, "%s%s %s, %s, :%s", prefix, nm, r0, r1, ins->label_target ? ins->label_target : "?"); break;
         case 11: case 16: case 19:
-            snprintf(b, sz, "%s%s %s, #%d", prefix, nm, r0, ins->lit); break;
+            snprintf(b, sz, "%s%s %s, #%lld", prefix, nm, r0, (long long)ins->lit); break;
         case 12:
-            snprintf(b, sz, "%s%s %s, %s, #%d", prefix, nm, r0, r1, ins->lit); break;
+            snprintf(b, sz, "%s%s %s, %s, #%lld", prefix, nm, r0, r1, (long long)ins->lit); break;
         case 13:
             snprintf(b, sz, "%s%s %s, %s, %s", prefix, nm, r0, r1, r2); break;
         case 14: {
@@ -154,7 +154,7 @@ void flow_fmt_insn(const smali_insn_t *ins, char *b, size_t sz, int with_line) {
         case 18:
             snprintf(b, sz, "%s%s %s, :%s", prefix, nm, r0, ins->label_target ? ins->label_target : "?"); break;
         case 22:
-            snprintf(b, sz, "%s%s %s, %s, #%d", prefix, nm, r0, r1, ins->lit); break;
+            snprintf(b, sz, "%s%s %s, %s, #%lld", prefix, nm, r0, r1, (long long)ins->lit); break;
         case 26:
             snprintf(b, sz, "%s%s %s, #%lld", prefix, nm, r0, (long long)(int64_t)ins->lit); break;
         default: snprintf(b, sz, "%s%s", prefix, nm); break;

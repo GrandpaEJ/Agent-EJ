@@ -13,7 +13,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
         while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
         if (!*start) break;
         
-        char *line_end = strchr(start, '\n');
+        char *line_end = smali_eol(start);
         if (!line_end) line_end = start + strlen(start);
         
         if (*start == '#') {
@@ -66,7 +66,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                 char *save_p = start;
                 while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
                 if (!*start) break;
-                if (*start == '#') { char *nl = strchr(start, '\n'); start = nl ? nl + 1 : start + strlen(start); continue; }
+                if (*start == '#') { char *nl = smali_eol(start); start = nl ? nl + 1 : start + strlen(start); continue; }
                 char *inner_tok = smali_next_token(&start);
                 if (!inner_tok) break;
                 if (strcmp(inner_tok, ".end") == 0) {
@@ -97,7 +97,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                         if (!ann->type) ann->type = smali_next_token(&start);
                         while (*start) {
                             while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
-                            if (*start == '#') { char *nl = strchr(start, '\n'); start = nl ? nl + 1 : start + strlen(start); continue; }
+                            if (*start == '#') { char *nl = smali_eol(start); start = nl ? nl + 1 : start + strlen(start); continue; }
                             char *elem_tok = smali_next_token(&start);
                             if (!elem_tok) break;
                             if (strcmp(elem_tok, ".end") == 0) { char *at = smali_next_token(&start); if (at) free(at); free(elem_tok); break; }
@@ -180,7 +180,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
 
             /* collect values until .end array-data */
             while (*start) {
-                char *line_end_inner = strchr(start, '\n');
+                char *line_end_inner = smali_eol(start);
                 if (!line_end_inner) line_end_inner = start + strlen(start);
                 char *p_inner = start;
                 char *tok_inner = smali_next_token(&p_inner);
@@ -199,7 +199,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                         uint8_t *expanded = realloc(ins->payload_data, ins->payload_data_len + (uint32_t)elem_width);
                         if (expanded) {
                             ins->payload_data = expanded;
-                            int32_t val = (int32_t)strtol(tok_inner, NULL, 0);
+                            int64_t val = smali_parse_lit(tok_inner);
                             for (int bi2 = 0; bi2 < (int)elem_width; bi2++) {
                                 ins->payload_data[ins->payload_data_len + bi2] = (val >> (bi2 * 8)) & 0xFF;
                             }
@@ -237,7 +237,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                 if (!ann->type) ann->type = smali_next_token(&start);
                 while (*start) {
                     while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
-                    if (*start == '#') { char *nl = strchr(start, '\n'); start = nl ? nl + 1 : start + strlen(start); continue; }
+                    if (*start == '#') { char *nl = smali_eol(start); start = nl ? nl + 1 : start + strlen(start); continue; }
                     char *etok = smali_next_token(&start);
                     if (!etok) break;
                     if (strcmp(etok, ".end") == 0) { char *at = smali_next_token(&start); if (at) free(at); free(etok); break; }
@@ -286,7 +286,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
             }
 
             while (*start) {
-                char *line_end_inner = strchr(start, '\n');
+                char *line_end_inner = smali_eol(start);
                 if (!line_end_inner) line_end_inner = start + strlen(start);
                 char *p_inner = start;
                 char *tok_inner = smali_next_token(&p_inner);
@@ -396,8 +396,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                     char *lit_tok = smali_next_token(&start);
                     ins->vA = smali_parse_register(vA_tok);
                     if (lit_tok) {
-                        if (lit_tok[0] == '#') ins->lit = (int32_t)strtol(lit_tok + 1, NULL, 0);
-                        else ins->lit = (int32_t)strtol(lit_tok, NULL, 0);
+                        ins->lit = smali_parse_lit(lit_tok);
                         free(lit_tok);
                     }
                     if (vA_tok) free(vA_tok);
@@ -437,8 +436,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                     ins->vB = smali_parse_register(vB_tok);
                     char *lit_tok = smali_next_token(&start);
                     if (lit_tok) {
-                        if (lit_tok[0] == '#') ins->lit = (int32_t)strtol(lit_tok + 1, NULL, 0);
-                        else ins->lit = (int32_t)strtol(lit_tok, NULL, 0);
+                        ins->lit = smali_parse_lit(lit_tok);
                         free(lit_tok);
                     }
                     if (vA_tok) free(vA_tok);
@@ -506,13 +504,12 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                         free(reg_range);
                     }
                     ins->ref_str = smali_next_token(&start);
-                } else if (ins->fmt == 16) {
+                } else if (ins->fmt == 16 || ins->fmt == 26) {
                     char *vA_tok = smali_next_token(&start);
                     char *lit_tok = smali_next_token(&start);
                     ins->vA = smali_parse_register(vA_tok);
                     if (lit_tok) {
-                        if (lit_tok[0] == '#') ins->lit = (int32_t)strtol(lit_tok + 1, NULL, 0);
-                        else ins->lit = (int32_t)strtol(lit_tok, NULL, 0);
+                        ins->lit = smali_parse_lit(lit_tok);
                         free(lit_tok);
                     }
                     if (vA_tok) free(vA_tok);
