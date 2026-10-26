@@ -424,7 +424,11 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
                     }
                     case VALUE_TYPE_ENUM: {
                         uint32_t fidx = smali_pool_find(&ctx->fields, f->value_str);
-                        if (fidx == 0xFFFFFFFF) fidx = 0;
+                        if (fidx == 0xFFFFFFFF) {
+                            fprintf(stderr, "WARNING: unresolved enum reference '%s'\n",
+                                    f->value_str ? f->value_str : "(null)");
+                            fidx = 0;
+                        }
                         int size = 4;
                         if (fidx <= 0xFF) size = 1;
                         else if (fidx <= 0xFFFF) size = 2;
