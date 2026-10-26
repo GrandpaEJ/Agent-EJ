@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **DEX 037+ support, correct smali output paths, and crash/bounds hardening** (#26): `dex_parse()` only accepted the `dex\n035\0` magic, so every APK built by a modern AGP was rejected with `Invalid DEX file`. The version check is now an explicit allowlist matching ART (035, 037, 038, 039, 040). `read_dex` derived the output path with `strrchr(class_line, 'L')`, which took the last `L` anywhere in the line and mangled names — `LiteSdkInfo` became `iteSdkInfo` and any package segment containing `L` lost its directory, silently dropping 17 of 5489 classes; the descriptor is now the last whitespace-delimited token, so the package path is preserved. Malformed pool keys reached the DEX writer unguarded and crashed it with a NULL dereference inside `smali_pool_find()`; the field_ids/method_ids loops, the annotation paths that add enum/field/method values, and the instruction paths now all require the same `class->name:type` shape. `comp_proto_sig()` wrote into a fixed 64-entry stack array without bounding the parameter count, overflowing the stack on a proto with more than 64 parameters. Empty DEX sections carried a non-zero offset in the header and the map list, violating constraint G7 (`Offset(N) should be zero when size is zero for field-ids`). The MUTF-8 size counter and the encoder used separate bounds checks, so a truncated sequence was counted as one UTF-16 unit but written as two bytes, violating G15. An unresolved reference was encoded as field/method index 0, silently pointing the instruction at an unrelated member; it now fails with the method name and line number. The class descriptor was used verbatim to build the output path, so a hostile APK with a descriptor such as `L../../tmp/evil` made `read_dex` write outside the output directory; any `..` path component is now rejected. `write_debug_info()` sized its instruction offset table at a hardcoded 4096 entries, truncating the debug info of larger methods. The parser leaked one allocation per `.field`/`.annotation` directive.
+
+### Added
+- **Multi-DEX assembly for large class trees**: every DEX id table is capped at 65535 entries, so assembling a real APK (5489 classes in the test APK) overflowed the method/field tables and produced no output at all. Classes are now ordered by package and split into runs that fit the limit, each written as its own DEX file (`classes.dex`, `classes2.dex`, ...); `smali_assemble_n()` reports how many files were written. `apk_build()` assembles `smali_classesN` in numeric order rather than `readdir()` order, so `classes.dex`, `classes2.dex` and friends land in the right slots inside the APK.
+
+### Changed
+- The DEX value formatter moved out of `format_dex_smali.c` into its own `format_dex_value.c`, removing a duplication that had drifted between the annotation writer and the static field initializer writer.
+
 ---
 
 ## [0.8.1] - 2026-06-24
