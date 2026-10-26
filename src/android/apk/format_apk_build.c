@@ -138,31 +138,60 @@ static int util_collect_files(const char *base, char ***paths, int *count, const
     return 0;
 }
 
+/* "smali" sorts first, then smali_classesN by N */
+static int smali_dir_rank(const char *name) {
+    return strncmp(name, "smali_classes", 13) == 0 ? atoi(name + 13) : 1;
+}
+
+static int cmp_smali_dirs(const void *a, const void *b) {
+    int ra = smali_dir_rank(*(char *const *)a), rb = smali_dir_rank(*(char *const *)b);
+    return ra != rb ? (ra < rb ? -1 : 1) : strcmp(*(char *const *)a, *(char *const *)b);
+}
+
 int apk_build(const char *src_dir, const char *out_apk, const char *key_path, const char *cert_path) {
     DIR *d = opendir(src_dir);
     if (!d) return -1;
     char **dex_files = NULL;
     int dex_count = 0;
     struct dirent *ent;
+    /* collect smali, smali_classes2, smali_classes3 ... in dex order */
+    char **dirs = NULL;
+    int dir_count = 0;
     while ((ent = readdir(d)) != NULL) {
-        if (strncmp(ent->d_name, "smali", 5) == 0) {
-            char smali_dir[1024];
-            snprintf(smali_dir, sizeof(smali_dir), "%s/%s", src_dir, ent->d_name);
-            struct stat st;
-            if (stat(smali_dir, &st) == 0 && S_ISDIR(st.st_mode)) {
-                char dex_name[128];
-                char num[32] = {0};
-                strncpy(num, ent->d_name + 13, strlen(ent->d_name) - 13);
-                snprintf(dex_name, sizeof(dex_name), "classes%s.dex", num);
-                char dex_path[1024];
-                snprintf(dex_path, sizeof(dex_path), "%s/%s", src_dir, dex_name);
-                smali_assemble(smali_dir, dex_path);
-                dex_files = realloc(dex_files, (dex_count + 1) * sizeof(char *));
-                dex_files[dex_count++] = strdup(dex_path);
-            }
+        if (strncmp(ent->d_name, "smali", 5) != 0) continue;
+        char smali_dir[1024];
+        snprintf(smali_dir, sizeof(smali_dir), "%s/%s", src_dir, ent->d_name);
+        struct stat st;
+        if (stat(smali_dir, &st) == 0 && S_ISDIR(st.st_mode)) {
+            dirs = realloc(dirs, (dir_count + 1) * sizeof(char *));
+            dirs[dir_count++] = strdup(ent->d_name);
         }
     }
     closedir(d);
+    qsort(dirs, dir_count, sizeof(char *), cmp_smali_dirs);
+
+    /* classes.dex, classes2.dex ... numbered across all dirs, since one dir may spill over */
+    int next_idx = 1;
+    for (int i = 0; i < dir_count; i++) {
+        char smali_dir[1024], dex_path[1024], dex_name[64];
+        snprintf(smali_dir, sizeof(smali_dir), "%s/%s", src_dir, dirs[i]);
+        if (next_idx == 1) snprintf(dex_name, sizeof(dex_name), "classes.dex");
+        else snprintf(dex_name, sizeof(dex_name), "classes%d.dex", next_idx);
+        snprintf(dex_path, sizeof(dex_path), "%s/%s", src_dir, dex_name);
+        int written = 0;
+        if (smali_assemble_n(smali_dir, dex_path, &written) == 0) {
+            for (int k = 0; k < written; k++) {
+                char part[1024];
+                if (k == 0) snprintf(part, sizeof(part), "%s", dex_path);
+                else snprintf(part, sizeof(part), "%s/classes%d.dex", src_dir, next_idx + k);
+                dex_files = realloc(dex_files, (dex_count + 1) * sizeof(char *));
+                dex_files[dex_count++] = strdup(part);
+            }
+            next_idx += written;
+        }
+        free(dirs[i]);
+    }
+    free(dirs);
 
     char tmp_unaligned[1024];
     snprintf(tmp_unaligned, sizeof(tmp_unaligned), "%s.unaligned.zip", out_apk);
