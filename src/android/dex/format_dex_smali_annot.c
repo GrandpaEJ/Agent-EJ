@@ -35,66 +35,15 @@ static void write_encoded_value(smali_sb *s, dex_ctx *ctx,
                                  const uint8_t **pp, const uint8_t *end,
                                  int base_indent) {
     const uint8_t *p = *pp;
-    if (p >= end) { *pp = p; return; }
+    if (p >= end) return;
+    int vtype = *p & 0x1F;
 
-    uint8_t head = *p++;
-    int vtype = head & 0x1F;
-    int varg = (head >> 5) & 0x07;
-    int width = varg + 1;
-
-    if (p + width > end) { *pp = p; return; }
-
-    switch (vtype) {
-    case 0x17: { /* STRING */
-        uint32_t idx = 0;
-        for (int i = 0; i < width; i++) idx |= (uint32_t)p[i] << (i * 8);
-        smali_sf(s, "\"%s\"", smali_res(ctx, 1, idx));
-        break;
-    }
-    case 0x18: { /* TYPE */
-        uint32_t idx = 0;
-        for (int i = 0; i < width; i++) idx |= (uint32_t)p[i] << (i * 8);
-        smali_sf(s, "%s", smali_res(ctx, 2, idx));
-        break;
-    }
-    case 0x19: case 0x1b: { /* FIELD or ENUM */
-        uint32_t idx = 0;
-        for (int i = 0; i < width; i++) idx |= (uint32_t)p[i] << (i * 8);
-        smali_sf(s, ".enum %s", smali_res(ctx, 3, idx));
-        break;
-    }
-    case 0x1a: { /* METHOD */
-        uint32_t idx = 0;
-        for (int i = 0; i < width; i++) idx |= (uint32_t)p[i] << (i * 8);
-        smali_sf(s, "%s", smali_res(ctx, 4, idx));
-        break;
-    }
-    case 0x04: { /* INT */
-        int32_t v = 0;
-        for (int i = 0; i < width && i < 4; i++) v |= (int32_t)p[i] << (i * 8);
-        if (width == 1) v = (int32_t)(int8_t)p[0];
-        else if (width == 2) v = (int32_t)(int16_t)(p[0] | (p[1] << 8));
-        smali_sf(s, "0x%x", v);
-        break;
-    }
-    case 0x00: { /* BYTE */
-        smali_sf(s, "0x%xt", (int)(int8_t)p[0]);
-        break;
-    }
-    case 0x02: { /* SHORT */
-        uint16_t v = p[0] | (p[1] << 8);
-        smali_sf(s, "0x%xs", (int)(int16_t)v);
-        break;
-    }
-    case 0x1e: smali_sa(s, "null"); break;
-    case 0x1f: smali_sf(s, "%s", varg ? "true" : "false"); break;
-    case 0x1c: { /* ARRAY */
-        uint32_t arr_size = 0;
-        for (int i = 0; i < width && i < 4; i++) arr_size |= (uint32_t)p[i] << (i * 8);
-        p += width;
-        if (arr_size == 0) { smali_sa(s, "{}"); *pp = p; return; }
+    if (vtype == 0x1c) {                         /* ARRAY: uleb size, then values */
+        uint32_t n; p++;
+        p += dex_read_uleb128(p, &n);
+        if (n == 0) { smali_sa(s, "{}"); *pp = p; return; }
         smali_sa(s, "{");
-        for (uint32_t ai = 0; ai < arr_size; ai++) {
+        for (uint32_t ai = 0; ai < n && p < end; ai++) {
             if (ai) smali_sa(s, ",");
             smali_sf(s, "\n%*s", base_indent + 4, "");
             write_encoded_value(s, ctx, &p, end, base_indent + 4);
@@ -103,26 +52,25 @@ static void write_encoded_value(smali_sb *s, dex_ctx *ctx,
         *pp = p;
         return;
     }
-    case 0x1d: { /* nested ANNOTATION */
-        p += width;
-        uint32_t sub_type_idx; smali_uleb(p, &sub_type_idx, &p);
-        uint32_t sub_elems; smali_uleb(p, &sub_elems, &p);
-        smali_sf(s, ".%s(", smali_res(ctx, 2, sub_type_idx));
-        for (uint32_t si = 0; si < sub_elems; si++) {
-            if (si) smali_sa(s, ", ");
-            uint32_t sname_idx; smali_uleb(p, &sname_idx, &p);
-            smali_sf(s, "%s=", smali_res(ctx, 1, sname_idx));
-            write_encoded_value(s, ctx, &p, end, 0);
+    if (vtype == 0x1d) {                         /* nested ANNOTATION: uleb type, uleb count, pairs */
+        uint32_t ty, n; p++;
+        p += dex_read_uleb128(p, &ty);
+        p += dex_read_uleb128(p, &n);
+        smali_sf(s, ".subannotation %s\n", smali_res(ctx, 2, ty));
+        for (uint32_t si = 0; si < n && p < end; si++) {
+            uint32_t name;
+            p += dex_read_uleb128(p, &name);
+            smali_sf(s, "%*s%s = ", base_indent + 4, "", smali_res(ctx, 1, name));
+            write_encoded_value(s, ctx, &p, end, base_indent + 4);
+            smali_sa(s, "\n");
         }
-        smali_sa(s, ")");
+        smali_sf(s, "%*s.end subannotation", base_indent, "");
         *pp = p;
         return;
     }
-    default:
-        smali_sf(s, "<0x%02x>", vtype);
-        break;
-    }
-    p += width;
+    static char buf[65536];
+    if (dex_format_value(&p, end, buf, sizeof(buf), ctx) < 0) { *pp = end; return; }
+    smali_sa(s, buf);
     *pp = p;
 }
 

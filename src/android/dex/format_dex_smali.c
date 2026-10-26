@@ -5,116 +5,6 @@
 
 extern int smali_uleb(const uint8_t *data, uint32_t *val, const uint8_t **next);
 
-static int skip_encoded_value(const uint8_t **pp, const uint8_t *end) {
-    const uint8_t *p = *pp;
-    if (p >= end) return -1;
-    uint8_t header = *p++;
-    int type = header & 0x1f;
-    int arg = (header >> 5) + 1;
-    if (p + arg > end) return -1;
-    p += arg;
-    if (type == 0x0c || type == 0x0d) {
-        /* encoded_array or encoded_annotation - skip recursively */
-        uint32_t sz;
-        if (p + dex_read_uleb128(p, &sz) > end) return -1;
-        p += dex_read_uleb128(p, &sz);
-        for (uint32_t i = 0; i < sz && p < end; i++) {
-            if (skip_encoded_value(&p, end) < 0) return -1;
-        }
-        if (type == 0x0d) {
-            /* annotation has name=value pairs */
-            for (uint32_t i = 0; i < sz && p < end; i++) {
-                p += dex_read_uleb128(p, &(uint32_t){0});
-                if (skip_encoded_value(&p, end) < 0) return -1;
-            }
-        }
-    }
-    *pp = p;
-    return 0;
-}
-
-static int format_encoded_value(const uint8_t **pp, const uint8_t *end, char *buf, size_t bufsz, dex_ctx *ctx, const char *field_type) {
-    const uint8_t *p = *pp;
-    if (p >= end) { buf[0] = 0; return -1; }
-    uint8_t header = *p++;
-    int type = header & 0x1f;
-    int arg = (header >> 5) + 1;
-    if (p + arg > end) { buf[0] = 0; return -1; }
-    uint64_t val = 0;
-    for (int i = 0; i < arg; i++)
-        val |= (uint64_t)p[i] << (i * 8);
-    p += arg;
-    *pp = p;
-    int is_int_field = field_type && (strcmp(field_type, "I") == 0 || strcmp(field_type, "[I") == 0);
-    int is_long_field = field_type && (strcmp(field_type, "J") == 0 || strcmp(field_type, "[J") == 0);
-    /* sign-extend val based on arg size */
-    if (arg < 8) {
-        uint64_t sign_bit = 1ULL << (arg * 8 - 1);
-        if (val & sign_bit)
-            val |= ~((1ULL << (arg * 8)) - 1);
-    }
-    switch (type) {
-    case 0x00: snprintf(buf, bufsz, "%d", (int8_t)val); break;
-    case 0x01: snprintf(buf, bufsz, "%d", (int16_t)val); break;
-    case 0x02: snprintf(buf, bufsz, "%u", (uint16_t)val); break;
-    case 0x03: if ((int32_t)val < 0) snprintf(buf, bufsz, "-0x%x", -(int32_t)val);
-               else snprintf(buf, bufsz, "0x%x", (uint32_t)val); break;
-    case 0x04: if (is_int_field) { if ((int32_t)val < 0) snprintf(buf, bufsz, "-0x%x", -(int32_t)val); else snprintf(buf, bufsz, "0x%x", (uint32_t)val); }
-               else if (is_long_field) snprintf(buf, bufsz, "0x%llxL", (unsigned long long)val);
-               else snprintf(buf, bufsz, "0x%llxL", (unsigned long long)val); break;
-    case 0x05: { float f; uint32_t fv = (uint32_t)val; memcpy(&f, &fv, 4);
-                snprintf(buf, bufsz, "%gf", f); break; }
-    case 0x06: { double d; uint64_t dv = val; memcpy(&d, &dv, 8);
-                snprintf(buf, bufsz, "%gd", d); break; }
-    case 0x07: case 0x17: { uint32_t si = (uint32_t)val;
-                if (si < (uint32_t)ctx->sp.count) {
-                    const char *str = ctx->sp.strings[si];
-                    size_t sl = strlen(str);
-                    size_t pos = 0;
-                    buf[pos++] = '"';
-                    for (size_t j = 0; j < sl && pos < bufsz - 4; j++) {
-                        char c = str[j];
-                        if (c == '\n') { buf[pos++] = '\\'; buf[pos++] = 'n'; }
-                        else if (c == '\r') { buf[pos++] = '\\'; buf[pos++] = 'r'; }
-                        else if (c == '\t') { buf[pos++] = '\\'; buf[pos++] = 't'; }
-                        else if (c == '\0') { buf[pos++] = '\\'; buf[pos++] = '0'; }
-                        else if (c == '\\') { buf[pos++] = '\\'; buf[pos++] = '\\'; }
-                        else if (c == '"') { buf[pos++] = '\\'; buf[pos++] = '"'; }
-                        else if (c == '\'') { buf[pos++] = '\\'; buf[pos++] = '\''; }
-                        else buf[pos++] = c;
-                    }
-                    buf[pos++] = '"'; buf[pos] = 0;
-                } else buf[0] = 0;
-                break; }
-    case 0x08: { uint32_t ti = (uint32_t)val;
-                if (ti < ctx->type_count) {
-                    const char *ts = ctx->sp.strings[ctx->type_ids[ti]];
-                    char *t = smali_tsm(ts);
-                    snprintf(buf, bufsz, "%s", t ?: ts);
-                    free(t);
-                } else buf[0] = 0;
-                break; }
-    case 0x0b: if ((int32_t)val < 0) snprintf(buf, bufsz, "-0x%x", -(int32_t)val);
-               else snprintf(buf, bufsz, "0x%x", (uint32_t)val); break;
-    case 0x1f: snprintf(buf, bufsz, "null"); break;
-    default: buf[0] = 0; break;
-    }
-    return 0;
-}
-
-static void format_static_value(const uint8_t *p, const uint8_t *end, int idx, char *buf, size_t bufsz, dex_ctx *ctx, const char *field_type) {
-    buf[0] = 0;
-    if (!p || p >= end) return;
-    uint32_t size;
-    int adv = dex_read_uleb128(p, &size);
-    p += adv;
-    if (idx < 0 || idx >= (int)size) return;
-    for (int i = 0; i < idx; i++) {
-        if (skip_encoded_value(&p, end) < 0) return;
-    }
-    format_encoded_value(&p, end, buf, bufsz, ctx, field_type);
-}
-
 char *dex_to_smali_class(dex_ctx *ctx, uint32_t ci) {
     if (ci >= ctx->class_count) return NULL;
     dex_class *c = &ctx->classes[ci];
@@ -175,14 +65,10 @@ char *dex_to_smali_class(dex_ctx *ctx, uint32_t ci) {
                 dex_field *f = &ctx->fields[fe->field_idx];
                 char *ft = smali_tsm(ctx->sp.strings[ctx->type_ids[f->type_idx]]);
                 const char *af = smali_aflags(fe->access_flags);
-                smali_write_annotations(&sb, ctx, c, 1, fe->field_idx);
-                char init_val[1024] = {0};
-                if (c->static_values_off && (fe->access_flags & 0x0008) && (fe->access_flags & 0x0010)) {
-                    const uint8_t *sv = ctx->data + c->static_values_off;
-                    const char *raw_type = ctx->sp.strings[ctx->type_ids[f->type_idx]];
-                    if (sv < ctx->data + ctx->size)
-                        format_static_value(sv, ctx->data + ctx->size, fi, init_val, sizeof(init_val), ctx, raw_type);
-                }
+                static char init_val[65536];
+                init_val[0] = 0;
+                if (c->static_values_off)
+                    dex_static_value(ctx, c->static_values_off, fi, init_val, sizeof(init_val));
                 if (af[0])
                     smali_sf(&sb, ".field %s %s:%s%s%s\n",
                         af, ctx->sp.strings[f->name_idx],
@@ -194,6 +80,9 @@ char *dex_to_smali_class(dex_ctx *ctx, uint32_t ci) {
                         ft ?: ctx->sp.strings[ctx->type_ids[f->type_idx]],
                         init_val[0] ? " = " : "", init_val[0] ? init_val : "");
                 free(ft);
+                size_t before_annots = len;
+                smali_write_annotations(&sb, ctx, c, 1, fe->field_idx);
+                if (len != before_annots) smali_sa(&sb, ".end field\n");
                 smali_sa(&sb, "\n");
             }
         }
@@ -208,7 +97,6 @@ char *dex_to_smali_class(dex_ctx *ctx, uint32_t ci) {
                 dex_field *f = &ctx->fields[fe->field_idx];
                 char *ft = smali_tsm(ctx->sp.strings[ctx->type_ids[f->type_idx]]);
                 const char *af = smali_aflags(fe->access_flags);
-                smali_write_annotations(&sb, ctx, c, 1, fe->field_idx);
                 if (af[0])
                     smali_sf(&sb, ".field %s %s:%s\n",
                         af, ctx->sp.strings[f->name_idx],
@@ -218,6 +106,9 @@ char *dex_to_smali_class(dex_ctx *ctx, uint32_t ci) {
                         ctx->sp.strings[f->name_idx],
                         ft ?: ctx->sp.strings[ctx->type_ids[f->type_idx]]);
                 free(ft);
+                size_t before_annots = len;
+                smali_write_annotations(&sb, ctx, c, 1, fe->field_idx);
+                if (len != before_annots) smali_sa(&sb, ".end field\n");
                 smali_sa(&sb, "\n");
             }
         }
