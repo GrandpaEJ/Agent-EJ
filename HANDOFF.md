@@ -1,10 +1,12 @@
 # Agent-X — Handoff (after the release of v0.8.2)
 
-**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `main` (= `origin/main`)
+**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `main` (= `origin/main`) at the release,
+**work in progress on `fix/issue-28-annotation-enum`**
 **Released:** **v0.8.2** — PR #27 (`82ddf91`) merged, release commit `3dbd0ff`,
 tag `v0.8.2` pushed.
-**Status:** **All seven issues are closed and the work is on `main`.** The only
-open issue is #28, a pre-existing annotation defect that was found on the way.
+**Status:** **All seven issues are closed** (PR #27) **and issue #28 is closed
+too** (branch `fix/issue-28-annotation-enum`, 7 commits, see §2b). The branch
+has **not been pushed** — that needs the go-ahead of the maintainer.
 
 **Branch `fix/open-issues-13-25-24-5-22-8` was kept** (not deleted) so that the
 individual commits cited in the issue comments stay reachable. It can go:
@@ -43,7 +45,7 @@ the branch is kept so the hashes stay reachable.
 | **7** | Smali Assembler — Debug Info (Line Numbers & Locals) | ✅ **closed** — `55d14a4` — read §4.4 |
 | **25** | `format_axml_encode`: gravity enum strings not parsed | ✅ **closed** — `8d0ffed` |
 | **24** | `format_apk_decode_arsc`: incomplete resource qualifier parsing | ✅ **closed** — `cd92923` |
-| **28** | *new* — annotation `.enum` written with an out-of-range field index | 🔴 **open** — see §4.5 |
+| **28** | annotation `.enum` written with an out-of-range field index | ✅ **closed** — `78aa914`, `e614f4a`, `0a5d3d9`, `569d3f8` — see §4.5 |
 
 ---
 
@@ -81,6 +83,20 @@ On `main`:
 3dbd0ff release: bump version to 0.8.2
 82ddf91 feat: native resources.arsc encoder, signed APK fix and smali assembler hardening (#27)
 8fa5495 docs(changelog): record the DEX 037 support and hardening work
+```
+
+### 2b. Issue #28 — the annotation fixes (branch `fix/issue-28-annotation-enum`)
+
+Seven commits, one logical change each:
+
+```
+d98f4c3 docs(changelog): record the annotation fixes
+7ec3113 test(smali): add regression tests for the annotation handling
+e614f4a fix(smali): resolve the enum field reference through the field pool
+78aa914 fix(smali): reject a malformed .enum value
+0a5d3d9 fix(smali): bind a field annotation only when ".end field" closes it
+c6f709c refactor(smali): move the annotation parsing into its own module
+569d3f8 fix(smali): free the dispatch token only once in the class parser
 ```
 
 ---
@@ -264,29 +280,93 @@ Spec reference (AOSP "Dalvik executable format", fetched during this session):
 disassembles both files to byte-identical smali**, with the same parameter names,
 local names and local types.
 
-### 4.5 Pre-existing defect found, **not** fixed — issue #28 is open
+### 4.5 Issue #28 — the annotation `.enum` writer. **FIXED, VERIFIED**
 
-`ann3` and `ann4` produce a DEX that **baksmali rejects**:
+The defect was found on the way to #7 and it was **three** defects, not one.
+
+**4.5.1 The field index was 0.** An enum value names a field as
+`Lclass;->name:type`, and the field pool is keyed by the whole reference. A
+value without the type was never added to the pool, the lookup returned
+`0xFFFFFFFF` and the writer wrote the field index 0:
 
 ```
+$ java -jar smali.jar a /tmp/opencode/ann3 -o /tmp/opencode/ann3.dex
+/tmp/opencode/ann3/A.smali[6,4] mismatched input '.end annotation' expecting COLON
+$ ./agent-x tool smali_assemble src_dir=/tmp/opencode/ann3 out_dex=/tmp/opencode/ann3.dex
+$ baksmali d /tmp/opencode/ann3.dex -o /tmp/opencode/ann3_out
 java.lang.IndexOutOfBoundsException: Invalid field index 0, not in [0, 0)
     at DexBackedFieldReference.getDefiningClass(DexBackedFieldReference.java:53)
     at BaksmaliWriter.writeEnum(BaksmaliWriter.java:309)
 ```
 
-An annotation `.enum` value is written with a field index that is out of range.
-Reproduced identically on `8fa5495` (verified with `git stash`), so it is **not**
-caused by this branch. It is in the annotation writer, not in the parser.
+**The `ann3`/`ann4` fixtures were invalid smali** — the reference assembler
+rejects them ("expecting COLON"), the type is missing. The fixtures were
+corrected to `x = .enum Lcom/test/Ann;->BAD:Lcom/test/Ann;` and the assembler
+now rejects the malformed form with `file:line: message`, the same way the
+reference rejects it.
 
-It was reported as **issue #28** with the reproduction steps. The writer has to
-resolve the enum to a real field of the annotation's class and fall back to a
-defined behaviour when the class does not declare it.
+**4.5.2 The initializer of a static field had the same defect in another
+place.** The reference was only added to the *string* pool, so the writer
+found nothing in the field pool and wrote the index 0 — the initializer
+pointed at the field that carries it:
+
+```
+reference : field[1] class=Lcom/test/Ann; type=Lcom/test/Ann; name='BAD'
+agent-x   : fields=1
+baksmali  : .field public static final E:Lcom/test/Ann; = .enum Lcom/test/A;->E:Lcom/test/Ann;
+```
+
+The reference enters the field pool now (`pool_add_enum_ref()`), together with
+its class, its type and its name.
+
+**4.5.3 A use after free in the class parser.** The `.field` branch released
+the dispatch token when it read a nested annotation block and the class level
+parser released it again when the directive ended. The second release handed
+the block back to the allocator and the next token was read from the recycled
+memory, so a class with a field and an annotation failed with a directive that
+was never in the source:
+
+```
+==292384==ERROR: AddressSanitizer: heap-use-after-free on address 0x502000000110
+    READ of size 1 at 0x502000000110 thread T0
+    #1 parse_smali_file_content src/android/smali/smali_parser.c:606
+  freed by thread T0 here:
+    #1 parse_smali_file_content src/android/smali/smali_parser.c:466
+  previously allocated by thread T0 here:
+    #1 smali_next_token src/android/smali/smali_lexer.c:113
+```
+
+**4.5.4 The binding rule was wrong.** A `.annotation` block that follows a
+`.field` directive belongs to the field **only** when the `.end field`
+terminator closes it. The reference assembler draws the same line — the
+`b4` fixture (no terminator) lands in the class annotation directory, the
+`b8` fixture (with the terminator) in the field annotation directory. We bound
+it to the field either way, so the annotation of a class was written into the
+field annotation set. The block is parsed on its own now and handed to the
+field only when the terminator follows.
+
+**Verification:** `tests/test_smali_annotations.sh` → **16/16**. The script
+checks the position of the annotation in the disassembly, not only its
+presence. It was run against the old code as well: **5 of 14 assertions fail
+there**, so the test does detect the defects.
+
+```bash
+$ git stash push -u && cp /tmp/anntest_keep.sh tests/ && make release
+$ ./tests/test_smali_annotations.sh
+pass: 5  fail: 9      # the old code
+$ git stash pop && make release
+pass: 16  fail: 0     # the fixed code
+```
+
+The annotation parsing moved into `src/android/smali/smali_annot.c` (199 LOC)
+in the same series: the class level, the field and the method parser shared
+three copies of the same loop that had drifted apart.
 
 ### 4.6 Known pre-existing problems in this area (found, not fixed)
 
-- **Small File Rule violations**: `smali_writer.c` 1229 LOC, `smali_pool.c` 755,
-  `smali_parser.c` 633, `smali_encoder.c` 292 (limit is 250). The new files stay
-  inside the rule: `smali_typelist.c` 90, `smali_validate.c` 124, `der.c` 192.
+- **Small File Rule violations**: `smali_writer.c` 1233 LOC, `smali_pool.c` 767,
+  `smali_insn_parser.c` 526, `smali_parser.c` 512 (limit is 250). The new file
+  stays inside the rule: `smali_annot.c` 199 LOC.
 - `smali_pool.c` `comp_field_key` / `comp_method_key` strict-weak-ordering concern
   (malformed keys use `strcmp` while valid keys use a numeric index) — a known LOW
   finding from the earlier PR review, still open.
@@ -377,6 +457,7 @@ follow-up; the model and the writer are the part it needs.
 | `tests/test_apk_signing.sh` | 12 cases: matching cert signs and verifies with apksigner (v2 + v3), a foreign cert is refused, no cert is refused, the v1 path refuses a foreign cert, no half-written output is left. Skips the apksigner checks when it is not installed. | **12/12** |
 | `tests/test_smali_register_limits.sh` | 21 instructions whose registers are inside/outside the limit of their DEX format. | **21/21** |
 | `tests/test_smali_diagnostics.sh` | 7 broken files → each must produce a `file:line: message` diagnostic. | **7/7** |
+| `tests/test_smali_annotations.sh` | 8 fixtures: a class annotation behind a field, a field annotation closed by `.end field`, an enum value and an enum initializer with and without the type, an enum whose class is not in the DEX, an enum whose field index differs from the index within the class. The position of the annotation is checked in the disassembly. | **16/16** |
 | `tests/dex_invariants.py` | G7 (a section with size 0 has offset 0), G8 (4-byte alignment), header `file_size` vs the real size. | OK on all fixtures |
 | `tests/arsc_dump.py` | an independent decoder, used as the oracle of the encoder test | — |
 | `tests/arsc_build.py` | builds a resource table without aapt2, the fixture of the encoder test | — |
@@ -408,11 +489,27 @@ tests/test_smali_diagnostics.sh       → 7 pass, 0 fail
 tests/test_arsc_encode.sh             → 22 pass, 0 fail
 ```
 
+After the #28 fixes (branch `fix/issue-28-annotation-enum`):
+
+```
+39 smali fixtures assemble            → 39 OK, 0 FAIL
+40 DEX files pass the G7/G8 invariants → 40 OK
+baksmali parses all of them           → 40 OK, 0 FAIL
+tests/test_smali_annotations.sh       → 16 pass, 0 fail
+tests/test_apk_signing.sh             → 12 pass, 0 fail
+tests/test_smali_register_limits.sh   → 21 pass, 0 fail
+tests/test_smali_diagnostics.sh       → 7 pass, 0 fail
+tests/test_arsc_encode.sh             → 22 pass, 0 fail
+ASan/UBSan/LSan over all fixtures     → no report
+```
+
 Fixture trees live in `/tmp/opencode/<name>/`: `t1 t2 t3 t4 ann ann2 ann3 ann4
 bulk cls big huge p2 p3 p4 mref onlymethods fieldkey x_field_arrow_nocolon
 x_enum_qmark x_method_arrow_noparen proto70` plus the new ones `tldedup`
 (type-list dedup), `proto300`/`proto300b` (>256 parameters), `dbgcmp`/`dbg2`
-(debug info, compared against smali.jar).
+(debug info, compared against smali.jar) and the annotation fixtures `b1 b2 b3
+b4 b5 b6 b7 b8 ann5 ann6 ann7 r2` (the class/field binding, the enum value and
+the enum initializer). `ann3`/`ann4` were corrected to the valid enum syntax.
 
 ### 6.4 Build and warnings
 
@@ -454,17 +551,20 @@ Everything that was on the list is done:
 | # | Item | State |
 |---|---|---|
 | 1 | Issue #5 — the native `resources.arsc` encoder | ✅ done, §5 |
-| 2 | Open an issue for the ann3/ann4 annotation defect | ✅ **#28** is open |
+| 2 | Open an issue for the ann3/ann4 annotation defect | ✅ **#28** opened and now closed, §4.5 |
 | 3 | Close #13, #22, #8, #7, #25, #24, #5 on GitHub | ✅ all closed with evidence |
 | 4 | CHANGELOG entries | ✅ `e0f9d2f`, under `## [0.8.2]` |
 | 5 | Version bump + tag | ✅ `3dbd0ff` + `v0.8.2` pushed |
 | 6 | Full regression before pushing | ✅ see §6.3 — 27/28/12/21/7/22 all green, ASan clean |
 | 7 | Push + PR + merge | ✅ PR #27 merged as `82ddf91` |
+| 8 | Issue #28 — the annotation `.enum` writer | ✅ **fixed** on `fix/issue-28-annotation-enum`, §4.5 — **not pushed yet** |
 
 ### The next pieces of work
 
-1. **Issue #28** — the annotation `.enum` writer (§4.5). Small, isolated, and it
-   breaks baksmali on the `ann3`/`ann4` fixtures.
+1. **Push `fix/issue-28-annotation-enum` and open the PR** — the seven commits
+   are local, the branch has never left the machine. It needs the go-ahead of
+   the maintainer; the same pattern as PR #27 applies (squash merge, a release
+   commit and a tag for the next version).
 2. **The v1 (JAR) signing path** (§3.4) — it still uses SHA-1, which Android 7+
    rejects, and `jarsigner` reports "nonexistent signed entries" for every
    entry. Needs its own issue.
@@ -472,8 +572,8 @@ Everything that was on the list is done:
    `decode_apk` writes the resources as XML and `build_apk` copies the original
    `resources.arsc` back, so a value that was edited in `res/values/strings.xml`
    is still lost. The model and the writer are the part a compiler needs.
-4. **The Small File Rule violations** (§4.6) — `smali_writer.c` 1229 LOC,
-   `smali_pool.c` 755, `smali_parser.c` 633, `smali_encoder.c` 292 against a
+4. **The Small File Rule violations** (§4.6) — `smali_writer.c` 1233 LOC,
+   `smali_pool.c` 767, `smali_insn_parser.c` 526, `smali_parser.c` 512 against a
    limit of 250.
 5. **`smali_pool.c` `comp_field_key` / `comp_method_key`** — the strict weak
    ordering concern (malformed keys use `strcmp` while valid keys use a numeric
@@ -486,7 +586,7 @@ cd /home/grandpa/me/code/c-lang/Agent-X
 rm -rf .zig-cache && make clean && make release
 for t in t1 t2 t3 t4 ann ann2 ann3 ann4 bulk cls big huge p2 p3 p4 mref onlymethods \
          fieldkey x_field_arrow_nocolon x_enum_qmark x_method_arrow_noparen proto70 \
-         tldedup proto300 proto300b dbgcmp dbg2; do
+         tldedup proto300 proto300b dbgcmp dbg2 b1 b2 b3 b4 b5 b6 b7 b8 ann5 ann6 ann7 r2; do
   d=/tmp/opencode/$t; [ -d "$d" ] || continue
   ./agent-x tool smali_assemble src_dir=$d out_dex=/tmp/opencode/final_$t.dex >/dev/null 2>&1 \
     && echo "OK $t" || echo "FAIL $t"
@@ -494,6 +594,7 @@ done
 ./tests/test_apk_signing.sh
 ./tests/test_smali_register_limits.sh
 ./tests/test_smali_diagnostics.sh
+./tests/test_smali_annotations.sh
 ARSC_TEST_APKS="$(ls ~/Downloads/Telegram\ Desktop/*.apk)" ./tests/test_arsc_encode.sh
 python3 tests/dex_invariants.py /tmp/opencode/final_*.dex
 ```
