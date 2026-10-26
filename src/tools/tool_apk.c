@@ -6,6 +6,56 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#if defined(__linux__)
+#include <unistd.h>
+#endif
+
+// Locate the default test key (matching the built-in certificate) so that
+// zero-config signing works from any working directory.
+static int resolve_default_key_path(char *out, size_t cap) {
+    static const char *candidates[] = {
+        "testkey.pem",       // legacy CWD-relative default
+        "keys/testkey.pem",  // repo layout when run from the repo root
+    };
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+        struct stat st;
+        if (stat(candidates[i], &st) == 0 && S_ISREG(st.st_mode)) {
+            snprintf(out, cap, "%s", candidates[i]);
+            return 1;
+        }
+    }
+#if defined(__linux__)
+    // Fall back to the key shipped next to the executable.
+    char exe[4096];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n > 0) {
+        exe[n] = '\0';
+        char *slash = strrchr(exe, '/');
+        if (slash) {
+            *slash = '\0';
+            snprintf(out, cap, "%s/keys/testkey.pem", exe);
+            struct stat st;
+            if (stat(out, &st) == 0 && S_ISREG(st.st_mode)) return 1;
+        }
+    }
+#endif
+    return 0;
+}
+
+// JSON error for signing failures, distinguishing cert/key mismatch (issue #13).
+// The numeric "status" makes the CLI exit non-zero so shell callers can detect
+// a failed signing attempt (see main.c tool-mode exit-code handling).
+static char* sign_failure_json(int ret, const char *what) {
+    char buf[512];
+    if (ret == APK_SIGN_ERR_CERT_MISMATCH) {
+        snprintf(buf, sizeof(buf),
+                 "{\"status\": 1, \"error\": \"%s failed: certificate does not match the signing key; supply a matching cert= path\", \"code\": \"cert_key_mismatch\"}",
+                 what);
+    } else {
+        snprintf(buf, sizeof(buf), "{\"status\": 1, \"error\": \"%s failed\"}", what);
+    }
+    return strdup(buf);
+}
 
 static int collect_files(const char *base, char ***paths, int *count, const char *root_dir) {
     DIR *d = opendir(base);
@@ -60,7 +110,11 @@ char* execute_build_apk(cJSON* args) {
     const char *cert_path = (cert_path_obj && cJSON_IsString(cert_path_obj)) ? cert_path_obj->valuestring : NULL;
 
     int ret = apk_build(src_dir_obj->valuestring, out_apk_obj->valuestring, key_path, cert_path);
-    if (ret != 0) return strdup("{\"error\": \"Failed to build APK\"}");
+    if (ret != 0) {
+        if (ret == APK_SIGN_ERR_CERT_MISMATCH)
+            return strdup("{\"error\": \"Failed to build APK: certificate does not match the signing key; supply a matching cert_path\", \"code\": \"cert_key_mismatch\"}");
+        return strdup("{\"error\": \"Failed to build APK\"}");
+    }
     
     char buf[512];
     snprintf(buf, sizeof(buf), "{\"status\": \"success\", \"output_apk\": \"%s\"}", out_apk_obj->valuestring);
@@ -116,7 +170,7 @@ char* execute_repack_apk(cJSON* args) {
 
 char* execute_resign_apk(cJSON* args) {
     cJSON* path_obj = cJSON_GetObjectItem(args, "path");
-    if (!path_obj || !cJSON_IsString(path_obj)) return strdup("{\"error\": \"Missing path\"}");
+    if (!path_obj || !cJSON_IsString(path_obj)) return strdup("{\"status\": 1, \"error\": \"Missing path\"}");
     
     char out_path[4096];
     snprintf(out_path, sizeof(out_path), "%s.signed", path_obj->valuestring);
@@ -124,12 +178,19 @@ char* execute_resign_apk(cJSON* args) {
     cJSON* cert_obj = cJSON_GetObjectItem(args, "cert");
     cJSON* key_obj = cJSON_GetObjectItem(args, "key");
     const char *cert_path = (cert_obj && cJSON_IsString(cert_obj)) ? cert_obj->valuestring : NULL;
-    const char *key_path = (key_obj && cJSON_IsString(key_obj)) ? key_obj->valuestring : "testkey.pem";
+    const char *key_path = (key_obj && cJSON_IsString(key_obj)) ? key_obj->valuestring : NULL;
+
+    char default_key[4096];
+    if (!key_path) {
+        if (!resolve_default_key_path(default_key, sizeof(default_key)))
+            return strdup("{\"status\": 1, \"error\": \"No key supplied and default keys/testkey.pem not found; pass key=\"}");
+        key_path = default_key;
+    }
 
     rsa_key key;
     if (rsa_load_key(key_path, &key) != 0) {
         char err[512];
-        snprintf(err, sizeof(err), "{\"error\": \"Failed to load private key: %s\"}", key_path);
+        snprintf(err, sizeof(err), "{\"status\": 1, \"error\": \"Failed to load private key: %s\"}", key_path);
         return strdup(err);
     }
     
@@ -150,7 +211,7 @@ char* execute_resign_apk(cJSON* args) {
             fclose(f);
         } else {
             char err[512];
-            snprintf(err, sizeof(err), "{\"error\": \"Failed to load custom certificate: %s\"}", cert_path);
+            snprintf(err, sizeof(err), "{\"status\": 1, \"error\": \"Failed to load custom certificate: %s\"}", cert_path);
             return strdup(err);
         }
     }
@@ -168,17 +229,22 @@ char* execute_resign_apk(cJSON* args) {
     snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.apk", path_obj->valuestring);
     
     if (do_v1) {
-        if (apk_sign_v1(path_obj->valuestring, needs_v2_v3 ? tmp_path : out_path, &key, do_v2, do_v3, custom_cert, custom_cert_len) != 0) {
-            return strdup("{\"error\": \"Native APK v1 signing failed\"}");
+        int ret = apk_sign_v1(path_obj->valuestring, needs_v2_v3 ? tmp_path : out_path, &key, do_v2, do_v3, custom_cert, custom_cert_len);
+        if (ret != 0) {
+            remove(needs_v2_v3 ? tmp_path : out_path); // no half-signed output
+            if (custom_cert) free(custom_cert);
+            return sign_failure_json(ret, "Native APK v1 signing");
         }
     }
     
     if (needs_v2_v3) {
         const char *in_file = do_v1 ? tmp_path : path_obj->valuestring;
-        if (apk_sign_v2_v3(in_file, out_path, &key, do_v2, do_v3, custom_cert, custom_cert_len) != 0) {
+        int ret = apk_sign_v2_v3(in_file, out_path, &key, do_v2, do_v3, custom_cert, custom_cert_len);
+        if (ret != 0) {
+            remove(out_path);
             if (custom_cert) free(custom_cert);
             if (do_v1) remove(tmp_path);
-            return strdup("{\"error\": \"Native APK v2/v3 signing failed\"}");
+            return sign_failure_json(ret, "Native APK v2/v3 signing");
         }
         if (do_v1) remove(tmp_path);
     }
