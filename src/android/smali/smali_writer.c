@@ -296,8 +296,10 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
             if (c->direct_methods[j].access_flags & 0x0500) {
                 direct_code_offsets[i][j] = 0;
                 direct_code_ends[i][j] = b.len;
+            } else if (write_code_item(ctx, &b, &c->direct_methods[j], &direct_code_offsets[i][j]) != 0) {
+                direct_code_ends[i][j] = b.len;
+                goto code_write_fail;
             } else {
-                direct_code_offsets[i][j] = write_code_item(ctx, &b, &c->direct_methods[j]);
                 direct_code_ends[i][j] = b.len;
             }
         }
@@ -305,8 +307,10 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
             if (c->virtual_methods[j].access_flags & 0x0500) {
                 virtual_code_offsets[i][j] = 0;
                 virtual_code_ends[i][j] = b.len;
+            } else if (write_code_item(ctx, &b, &c->virtual_methods[j], &virtual_code_offsets[i][j]) != 0) {
+                virtual_code_ends[i][j] = b.len;
+                goto code_write_fail;
             } else {
-                virtual_code_offsets[i][j] = write_code_item(ctx, &b, &c->virtual_methods[j]);
                 virtual_code_ends[i][j] = b.len;
             }
         }
@@ -1260,4 +1264,20 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
     free(direct_code_offsets); free(virtual_code_offsets);
     free(direct_code_ends); free(virtual_code_ends); free(class_data_offsets);
     return fp ? 0 : -1;
+
+code_write_fail:;
+    /* An instruction failed to encode: discard the half-written DEX. Only the
+     * arrays allocated up to this point are released; the class-data, static
+     * value and annotation arrays are not allocated yet. */
+    for (uint32_t i = 0; i < class_count; i++) {
+        free(direct_code_offsets[i]);
+        free(virtual_code_offsets[i]);
+        free(direct_code_ends[i]);
+        free(virtual_code_ends[i]);
+    }
+    free(direct_code_offsets); free(virtual_code_offsets);
+    free(direct_code_ends); free(virtual_code_ends);
+    free(string_offsets); free(proto_param_offsets); free(interfaces_offsets);
+    buf_free(&b);
+    return -1;
 }

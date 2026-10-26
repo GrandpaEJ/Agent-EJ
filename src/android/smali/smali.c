@@ -2,6 +2,7 @@
 #include "smali_pool.h"
 #include "smali_writer.h"
 #include "smali_order.h"
+#include "smali_error.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,6 +40,7 @@ static int collect_smali_files(const char *dir, char ***files, int *count) {
 int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out) {
     if (!src_dir || !out_dex) return -1;
     if (n_out) *n_out = 0;
+    smali_clear_error();
 
     smali_ctx_def_t ctx;
     memset(&ctx, 0, sizeof(ctx));
