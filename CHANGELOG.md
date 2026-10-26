@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.8.3] - 2026-10-26
+
 ### Fixed
 - **An annotation behind a field was written to the wrong place** (#28): a `.annotation` block that follows a `.field` directive was bound to the field, but the block belongs to the field only when the `.end field` terminator closes it — the reference assembler draws the same line. A class with a field and a class level annotation therefore lost the annotation: it went into the field annotation set instead of the class annotation set. The block is parsed on its own now and handed to the field only when the terminator follows.
 - **An enum value pointed at an arbitrary field** (#28): an enum value names a field as `Lclass;->name:type`, and the field pool is keyed by the whole reference. A value without the type was written with the field index 0, and baksmali rejected the DEX with `java.lang.IndexOutOfBoundsException: Invalid field index 0, not in [0, 0)`. Such a value is rejected now with the file and the line, the same way the reference assembler rejects it ("expecting COLON"). The initializer of a static field had the same defect in a different place: the reference was only added to the string pool, so the initializer pointed at the field that carries it instead of at the enum constant — it enters the field pool now.
