@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **An annotation behind a field was written to the wrong place** (#28): a `.annotation` block that follows a `.field` directive was bound to the field, but the block belongs to the field only when the `.end field` terminator closes it — the reference assembler draws the same line. A class with a field and a class level annotation therefore lost the annotation: it went into the field annotation set instead of the class annotation set. The block is parsed on its own now and handed to the field only when the terminator follows.
+- **An enum value pointed at an arbitrary field** (#28): an enum value names a field as `Lclass;->name:type`, and the field pool is keyed by the whole reference. A value without the type was written with the field index 0, and baksmali rejected the DEX with `java.lang.IndexOutOfBoundsException: Invalid field index 0, not in [0, 0)`. Such a value is rejected now with the file and the line, the same way the reference assembler rejects it ("expecting COLON"). The initializer of a static field had the same defect in a different place: the reference was only added to the string pool, so the initializer pointed at the field that carries it instead of at the enum constant — it enters the field pool now.
+- **The dispatch token was released twice** (memory safety): the `.field` branch released the token of the class level parser when it read a nested annotation block and the parser released it again when the directive ended. The second release handed the block back to the allocator and the next token was read from the recycled memory, so a class with a field and an annotation failed with a directive that was never in the source (`unknown directive '.end' at class level`). AddressSanitizer confirmed the use after free.
+
+### Changed
+- The annotation parsing moved into its own module: `smali_annot.c` reads the values, the blocks and releases the annotations, and the class level, the field and the method parser share one implementation instead of three copies that had drifted apart.
+
 ---
 
 ## [0.8.2] - 2026-10-26
