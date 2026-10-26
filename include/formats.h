@@ -54,6 +54,8 @@ void dex_free(dex_ctx *ctx);
 
 // Smali assembler
 int smali_assemble(const char *src_dir, const char *out_dex);
+/* Like smali_assemble, but reports how many DEX files were written (classes.dex, classes2.dex, ...). */
+int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out);
 
 // Smali flow graph
 #include "smali_flow.h"

@@ -21,6 +21,39 @@ typedef struct {
     uint32_t offset;
 } map_item_entry_t;
 
+/* Decode one MUTF-8 sequence at up[j].
+ * Returns the number of source bytes consumed and stores the number of
+ * UTF-16 code units the sequence encodes to in *units.
+ * Truncated or malformed sequences fall back to a single byte so that the
+ * size counter and the encoder always agree on how many units a string has
+ * (DEX constraint G15 requires utf16_size to match the decoded length). */
+static size_t mutf8_decode(const uint8_t *up, size_t raw_len, size_t j, size_t *units) {
+    if ((up[j] & 0x80) == 0) {
+        *units = 1;
+        return 1;
+    }
+    if ((up[j] & 0xE0) == 0xC0) {
+        if (j + 1 < raw_len && (up[j + 1] & 0xC0) == 0x80) {
+            *units = 1;
+            return 2;
+        }
+    } else if ((up[j] & 0xF0) == 0xE0) {
+        if (j + 2 < raw_len && (up[j + 1] & 0xC0) == 0x80 && (up[j + 2] & 0xC0) == 0x80) {
+            *units = 1;
+            return 3;
+        }
+    } else if ((up[j] & 0xF8) == 0xF0) {
+        if (j + 3 < raw_len && (up[j + 1] & 0xC0) == 0x80 &&
+            (up[j + 2] & 0xC0) == 0x80 && (up[j + 3] & 0xC0) == 0x80) {
+            *units = 2; /* supplementary char = 2 UTF-16 code units */
+            return 4;
+        }
+    }
+    /* malformed or truncated: emit the byte as-is, one unit */
+    *units = 1;
+    return 1;
+}
+
 static int comp_u32_tl(const void *a, const void *b) {
     uint32_t ua = *(const uint32_t *)a;
     uint32_t ub = *(const uint32_t *)b;
@@ -42,7 +75,7 @@ static const char *s_current_class_desc = NULL;
 static int comp_class_fields(const void *a, const void *b) {
     const smali_field_def_t *fa = (const smali_field_def_t *)a;
     const smali_field_def_t *fb = (const smali_field_def_t *)b;
-    char keyA[1024], keyB[1024];
+    char keyA[4096], keyB[4096];
     snprintf(keyA, sizeof(keyA), "%s->%s:%s", s_current_class_desc, fa->name, fa->type);
     snprintf(keyB, sizeof(keyB), "%s->%s:%s", s_current_class_desc, fb->name, fb->type);
     uint32_t idxA = smali_pool_find(&s_write_ctx->fields, keyA);
@@ -53,7 +86,7 @@ static int comp_class_fields(const void *a, const void *b) {
 static int comp_class_methods(const void *a, const void *b) {
     const smali_method_def_t *ma = (const smali_method_def_t *)a;
     const smali_method_def_t *mb = (const smali_method_def_t *)b;
-    char keyA[1024], keyB[1024];
+    char keyA[4096], keyB[4096];
     snprintf(keyA, sizeof(keyA), "%s->%s%s", s_current_class_desc, ma->name, ma->signature);
     snprintf(keyB, sizeof(keyB), "%s->%s%s", s_current_class_desc, mb->name, mb->signature);
     uint32_t idxA = smali_pool_find(&s_write_ctx->methods, keyA);
@@ -100,6 +133,17 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
     uint32_t class_defs_off = method_ids_off + method_count * 8;
     uint32_t data_off = class_defs_off + class_count * 32;
 
+    /* DEX constraint G7: for every section the size and offset header fields
+     * must be both zero or both non-zero. The layout offsets above still chain
+     * so the sections stay contiguous, but the values reported in the header
+     * and the map list must be zero when the section is empty. */
+    uint32_t hdr_string_ids_off = string_count ? string_ids_off : 0;
+    uint32_t hdr_type_ids_off   = type_count ? type_ids_off : 0;
+    uint32_t hdr_proto_ids_off  = proto_count ? proto_ids_off : 0;
+    uint32_t hdr_field_ids_off  = field_count ? field_ids_off : 0;
+    uint32_t hdr_method_ids_off = method_count ? method_ids_off : 0;
+    uint32_t hdr_class_defs_off = class_count ? class_defs_off : 0;
+
     if (data_off > b.cap) {
         while (data_off > b.cap) b.cap *= 2;
         b.buf = realloc(b.buf, b.cap);
@@ -116,38 +160,27 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         // DEX spec: utf16_size is the number of UTF-16 code units, not MUTF-8 byte length
         size_t utf16_size = 0;
         for (size_t j = 0; j < raw_len; ) {
-            if ((up[j] & 0x80) == 0) {
-                j += 1; utf16_size++;
-            } else if ((up[j] & 0xE0) == 0xC0) {
-                j += 2; utf16_size++;
-            } else if ((up[j] & 0xF0) == 0xE0) {
-                j += 3; utf16_size++;
-            } else if ((up[j] & 0xF8) == 0xF0) {
-                j += 4; utf16_size += 2; // supplementary chars = 2 UTF-16 code units
-            } else {
-                j += 1; utf16_size++;
-            }
+            size_t units = 0;
+            j += mutf8_decode(up, raw_len, j, &units);
+            utf16_size += units;
         }
         buf_write_uleb128(&b, utf16_size);
         for (size_t j = 0; j < raw_len; ) {
-            if (up[j] == 0) { 
-                buf_write_u8(&b, 0xC0); buf_write_u8(&b, 0x80); 
-                j++;
-            } else if ((up[j] & 0x80) == 0) {
+            size_t units = 0;
+            size_t n = mutf8_decode(up, raw_len, j, &units);
+            if (n == 1 && (up[j] & 0x80)) {
+                /* malformed or truncated sequence: keep the raw byte */
                 buf_write_u8(&b, up[j]);
-                j++;
-            } else if ((up[j] & 0xE0) == 0xC0) {
+            } else if (n == 2) {
                 buf_write_u8(&b, up[j]);
-                buf_write_u8(&b, up[j+1]);
-                j += 2;
-            } else if ((up[j] & 0xF0) == 0xE0) {
+                buf_write_u8(&b, up[j + 1]);
+            } else if (n == 3) {
                 buf_write_u8(&b, up[j]);
-                buf_write_u8(&b, up[j+1]);
-                buf_write_u8(&b, up[j+2]);
-                j += 3;
-            } else if ((up[j] & 0xF8) == 0xF0) {
+                buf_write_u8(&b, up[j + 1]);
+                buf_write_u8(&b, up[j + 2]);
+            } else if (n == 4) {
                 // 4-byte UTF-8 needs to be converted to surrogate pairs (2x 3-byte MUTF-8)
-                uint32_t codepoint = ((up[j] & 0x07) << 18) | ((up[j+1] & 0x3F) << 12) | ((up[j+2] & 0x3F) << 6) | (up[j+3] & 0x3F);
+                uint32_t codepoint = ((up[j] & 0x07) << 18) | ((up[j + 1] & 0x3F) << 12) | ((up[j + 2] & 0x3F) << 6) | (up[j + 3] & 0x3F);
                 uint32_t u = codepoint - 0x10000;
                 uint16_t high = (u >> 10) + 0xD800;
                 uint16_t low = (u & 0x3FF) + 0xDC00;
@@ -161,11 +194,10 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
                 buf_write_u8(&b, 0xE0 | ((low >> 12) & 0x0F));
                 buf_write_u8(&b, 0x80 | ((low >> 6) & 0x3F));
                 buf_write_u8(&b, 0x80 | (low & 0x3F));
-                j += 4;
             } else {
                 buf_write_u8(&b, up[j]);
-                j++;
             }
+            j += n;
         }
         // DEX spec: string_data_item must be null-terminated
         buf_write_u8(&b, 0);
@@ -308,7 +340,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
 
         uint32_t last_idx = 0;
         for (uint32_t j = 0; j < c->static_field_count; j++) {
-            char key[1024]; snprintf(key, sizeof(key), "%s->%s:%s", c->descriptor, c->static_fields[j].name, c->static_fields[j].type);
+            char key[4096]; snprintf(key, sizeof(key), "%s->%s:%s", c->descriptor, c->static_fields[j].name, c->static_fields[j].type);
             uint32_t idx = smali_pool_find(&ctx->fields, key);
             buf_write_uleb128(&b, idx - last_idx);
             buf_write_uleb128(&b, c->static_fields[j].access_flags);
@@ -316,7 +348,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         }
         last_idx = 0;
         for (uint32_t j = 0; j < c->instance_field_count; j++) {
-            char key[1024]; snprintf(key, sizeof(key), "%s->%s:%s", c->descriptor, c->instance_fields[j].name, c->instance_fields[j].type);
+            char key[4096]; snprintf(key, sizeof(key), "%s->%s:%s", c->descriptor, c->instance_fields[j].name, c->instance_fields[j].type);
             uint32_t idx = smali_pool_find(&ctx->fields, key);
             buf_write_uleb128(&b, idx - last_idx);
             buf_write_uleb128(&b, c->instance_fields[j].access_flags);
@@ -324,7 +356,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         }
         last_idx = 0;
         for (uint32_t j = 0; j < c->direct_method_count; j++) {
-            char key[1024]; snprintf(key, sizeof(key), "%s->%s%s", c->descriptor, c->direct_methods[j].name, c->direct_methods[j].signature);
+            char key[4096]; snprintf(key, sizeof(key), "%s->%s%s", c->descriptor, c->direct_methods[j].name, c->direct_methods[j].signature);
             uint32_t idx = smali_pool_find(&ctx->methods, key);
             buf_write_uleb128(&b, idx - last_idx);
             buf_write_uleb128(&b, c->direct_methods[j].access_flags);
@@ -333,7 +365,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         }
         last_idx = 0;
         for (uint32_t j = 0; j < c->virtual_method_count; j++) {
-            char key[1024]; snprintf(key, sizeof(key), "%s->%s%s", c->descriptor, c->virtual_methods[j].name, c->virtual_methods[j].signature);
+            char key[4096]; snprintf(key, sizeof(key), "%s->%s%s", c->descriptor, c->virtual_methods[j].name, c->virtual_methods[j].signature);
             uint32_t idx = smali_pool_find(&ctx->methods, key);
             buf_write_uleb128(&b, idx - last_idx);
             buf_write_uleb128(&b, c->virtual_methods[j].access_flags);
@@ -549,8 +581,15 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
     }
     for (uint32_t i = 0; i < field_count; i++) {
         const char *key = ctx->fields.strings[i];
-        char *arrow = strstr(key, "->");
-        char *colon = strchr(key, ':');
+        /* Malformed keys ("??", "Lcls;->name" without a type) reach here from
+         * annotation values and unresolvable refs. The comparator tolerates
+         * them, so the writer must not dereference the missing parts. */
+        char *arrow = key ? strstr(key, "->") : NULL;
+        char *colon = key ? strchr(key, ':') : NULL;
+        if (!arrow || !colon || colon <= arrow + 2) {
+            fprintf(stderr, "WARNING: skipping malformed field key '%s'\n", key ? key : "(null)");
+            continue;
+        }
         char *class_part = strndup(key, arrow - key);
         char *name_part = strndup(arrow + 2, colon - (arrow + 2));
         uint32_t field_off = field_ids_off + i * 8;
@@ -561,8 +600,12 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
     }
     for (uint32_t i = 0; i < method_count; i++) {
         const char *key = ctx->methods.strings[i];
-        char *arrow = strstr(key, "->");
-        char *paren = strchr(key, '(');
+        char *arrow = key ? strstr(key, "->") : NULL;
+        char *paren = key ? strchr(key, '(') : NULL;
+        if (!arrow || !paren || paren <= arrow + 2) {
+            fprintf(stderr, "WARNING: skipping malformed method key '%s'\n", key ? key : "(null)");
+            continue;
+        }
         char *class_part = strndup(key, arrow - key);
         char *name_part = strndup(arrow + 2, paren - (arrow + 2));
         uint32_t method_off = method_ids_off + i * 8;
@@ -894,7 +937,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         if (field_annot_count > 0) {
             for (uint32_t j = 0; j < c->static_field_count; j++) {
                 if (field_s_set_offs[i][j]) {
-                    char mkey[1024];
+                    char mkey[4096];
                     snprintf(mkey, sizeof(mkey), "%s->%s:%s", c->descriptor, c->static_fields[j].name, c->static_fields[j].type);
                     uint32_t fidx = smali_pool_find(&ctx->fields, mkey);
                     buf_write_u32(&b, fidx == 0xFFFFFFFF ? 0 : fidx);
@@ -903,7 +946,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
             }
             for (uint32_t j = 0; j < c->instance_field_count; j++) {
                 if (field_i_set_offs[i][j]) {
-                    char mkey[1024];
+                    char mkey[4096];
                     snprintf(mkey, sizeof(mkey), "%s->%s:%s", c->descriptor, c->instance_fields[j].name, c->instance_fields[j].type);
                     uint32_t fidx = smali_pool_find(&ctx->fields, mkey);
                     buf_write_u32(&b, fidx == 0xFFFFFFFF ? 0 : fidx);
@@ -915,7 +958,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         if (meth_annot_count > 0) {
             for (uint32_t j = 0; j < c->direct_method_count; j++) {
                 if (meth_d_set_offs[i][j]) {
-                    char mkey[1024];
+                    char mkey[4096];
                     snprintf(mkey, sizeof(mkey), "%s->%s%s", c->descriptor, c->direct_methods[j].name, c->direct_methods[j].signature);
                     uint32_t midx = smali_pool_find(&ctx->methods, mkey);
                     buf_write_u32(&b, midx == 0xFFFFFFFF ? 0 : midx);
@@ -924,7 +967,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
             }
             for (uint32_t j = 0; j < c->virtual_method_count; j++) {
                 if (meth_v_set_offs[i][j]) {
-                    char mkey[1024];
+                    char mkey[4096];
                     snprintf(mkey, sizeof(mkey), "%s->%s%s", c->descriptor, c->virtual_methods[j].name, c->virtual_methods[j].signature);
                     uint32_t midx = smali_pool_find(&ctx->methods, mkey);
                     buf_write_u32(&b, midx == 0xFFFFFFFF ? 0 : midx);
@@ -936,7 +979,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         if (param_annot_count > 0) {
             for (uint32_t j = 0; j < c->direct_method_count; j++) {
                 if (param_d_ref_list_offs[i][j]) {
-                    char mkey[1024];
+                    char mkey[4096];
                     snprintf(mkey, sizeof(mkey), "%s->%s%s", c->descriptor, c->direct_methods[j].name, c->direct_methods[j].signature);
                     uint32_t midx = smali_pool_find(&ctx->methods, mkey);
                     buf_write_u32(&b, midx == 0xFFFFFFFF ? 0 : midx);
@@ -945,7 +988,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
             }
             for (uint32_t j = 0; j < c->virtual_method_count; j++) {
                 if (param_v_ref_list_offs[i][j]) {
-                    char mkey[1024];
+                    char mkey[4096];
                     snprintf(mkey, sizeof(mkey), "%s->%s%s", c->descriptor, c->virtual_methods[j].name, c->virtual_methods[j].signature);
                     uint32_t midx = smali_pool_find(&ctx->methods, mkey);
                     buf_write_u32(&b, midx == 0xFFFFFFFF ? 0 : midx);
@@ -1037,15 +1080,15 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
 
         uint32_t cls_idx = smali_pool_find(&ctx->types, c->descriptor);
         if (cls_idx == 0xFFFFFFFF) {
-            printf("WARNING: Class descriptor '%s' not found in types pool!\n", c->descriptor);
+            fprintf(stderr, "WARNING: Class descriptor '%s' not found in types pool!\n", c->descriptor);
         }
         uint32_t super_idx = c->super_class ? smali_pool_find(&ctx->types, c->super_class) : 0xFFFFFFFF;
         if (c->super_class && super_idx == 0xFFFFFFFF) {
-            printf("WARNING: Superclass '%s' of '%s' not found in types pool!\n", c->super_class, c->descriptor);
+            fprintf(stderr, "WARNING: Superclass '%s' of '%s' not found in types pool!\n", c->super_class, c->descriptor);
         }
         uint32_t src_idx = c->source_file ? smali_pool_find(&ctx->strings, c->source_file) : 0xFFFFFFFF;
         if (c->source_file && src_idx == 0xFFFFFFFF) {
-            printf("WARNING: Source file '%s' of '%s' not found in strings pool!\n", c->source_file, c->descriptor);
+            fprintf(stderr, "WARNING: Source file '%s' of '%s' not found in strings pool!\n", c->source_file, c->descriptor);
         }
 
         *(uint32_t *)(b.buf + def_off) = cls_idx;
@@ -1187,12 +1230,12 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
     *(uint32_t *)(b.buf + 40) = 0x12345678;
 
     uint32_t header_offsets[14] = {
-        string_count, string_ids_off,
-        type_count, type_ids_off,
-        proto_count, proto_ids_off,
-        field_count, field_ids_off,
-        method_count, method_ids_off,
-        class_count, class_defs_off,
+        string_count, hdr_string_ids_off,
+        type_count, hdr_type_ids_off,
+        proto_count, hdr_proto_ids_off,
+        field_count, hdr_field_ids_off,
+        method_count, hdr_method_ids_off,
+        class_count, hdr_class_defs_off,
         b.len - data_off, data_off
     };
     memcpy(b.buf + 56, header_offsets, sizeof(header_offsets));

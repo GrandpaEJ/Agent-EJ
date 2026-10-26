@@ -55,19 +55,33 @@ int smali_sf(smali_sb *s, const char *fmt, ...) {
     *s->l += n; return 0;
 }
 
+/* Decodes MUTF-8 and escapes like baksmali: only 0x20..0x7e stay literal, the rest is \uXXXX. */
 static const char *smali_escape_str(const char *raw) {
-    static char buf[4096];
+    static char *buf; static size_t cap;
+    size_t need = strlen(raw) * 6 + 1;
+    if (need > cap) {
+        char *nb = realloc(buf, need);
+        if (!nb) return "";
+        buf = nb; cap = need;
+    }
     size_t j = 0;
-    for (size_t i = 0; raw[i] && j < sizeof(buf) - 2; i++) {
-        unsigned char c = (unsigned char)raw[i];
-        if (c == '\n') { buf[j++]='\\'; buf[j++]='n'; }
-        else if (c == '\r') { buf[j++]='\\'; buf[j++]='r'; }
-        else if (c == '\t') { buf[j++]='\\'; buf[j++]='t'; }
-        else if (c == '\0') { buf[j++]='\\'; buf[j++]='0'; }
-        else if (c == '\\') { buf[j++]='\\'; buf[j++]='\\'; }
-        else if (c == '"') { buf[j++]='\\'; buf[j++]='"'; }
-        else if (c == '\'') { buf[j++]='\\'; buf[j++]='\''; }
-        else buf[j++] = raw[i];
+    const unsigned char *r = (const unsigned char *)raw;
+    for (size_t i = 0; r[i]; ) {
+        unsigned u = r[i];
+        if (u >= 0xE0 && r[i+1] && r[i+2]) { u = ((u & 0x0F) << 12) | ((r[i+1] & 0x3F) << 6) | (r[i+2] & 0x3F); i += 3; }
+        else if (u >= 0xC0 && r[i+1]) { u = ((u & 0x1F) << 6) | (r[i+1] & 0x3F); i += 2; }
+        else i++;
+        switch (u) {
+        case '\b': buf[j++]='\\'; buf[j++]='b'; break;
+        case '\t': buf[j++]='\\'; buf[j++]='t'; break;
+        case '\n': buf[j++]='\\'; buf[j++]='n'; break;
+        case '\f': buf[j++]='\\'; buf[j++]='f'; break;
+        case '\r': buf[j++]='\\'; buf[j++]='r'; break;
+        case '"': case '\'': case '\\': buf[j++]='\\'; buf[j++]=(char)u; break;
+        default:
+            if (u >= 0x20 && u <= 0x7e) buf[j++] = (char)u;
+            else j += (size_t)sprintf(buf + j, "\\u%04x", u & 0xFFFF);
+        }
     }
     buf[j] = '\0';
     return buf;
@@ -82,7 +96,7 @@ const char *smali_res(dex_ctx *ctx, int k, uint32_t i) {
             dex_field *f = &ctx->fields[i];
             char *c = smali_tsm(smali_res(ctx,2,f->class_idx));
             char *t = smali_tsm(smali_res(ctx,2,f->type_idx));
-            static char b[256];
+            static char b[4096];
             snprintf(b,sizeof(b), "%s->%s:%s",
                 c?:smali_res(ctx,2,f->class_idx),
                 smali_res(ctx,1,f->name_idx),
@@ -95,17 +109,17 @@ const char *smali_res(dex_ctx *ctx, int k, uint32_t i) {
             dex_proto *p = &ctx->protos[m->proto_idx];
             char *c = smali_tsm(smali_res(ctx,2,m->class_idx));
             char *rt = smali_tsm(smali_res(ctx,2,p->return_type_idx));
-            char par[1024] = "";
+            static char par[65536]; par[0] = 0;
             if (p->params_off && p->params_off+4 <= ctx->size) {
                 uint32_t po = p->params_off, pc;
                 memcpy(&pc, ctx->data+po, 4); po += 4;
-                if (po+pc*2<=ctx->size) for (uint32_t pi=0; pi<pc && pi<40; pi++) {
+                if (po+pc*2<=ctx->size) for (uint32_t pi=0; pi<pc; pi++) {
                     uint16_t ti; memcpy(&ti, ctx->data+po+pi*2, 2);
                     const char *pt = smali_res(ctx,2,ti);
-                    if (strlen(par)<900) strncat(par,pt, sizeof(par)-strlen(par)-1);
+                    strncat(par,pt, sizeof(par)-strlen(par)-1);
                 }
             }
-            static char b[1024];
+            static char b[65536 + 4096];
             snprintf(b,sizeof(b), "%s->%s(%s)%s",
                 c?:smali_res(ctx,2,m->class_idx),
                 smali_res(ctx,1,m->name_idx), par,
@@ -121,11 +135,11 @@ void smali_mproto(dex_ctx *ctx, uint32_t mi, char *b, size_t z) {
     dex_method_id *m = &ctx->methods[mi];
     dex_proto *p = &ctx->protos[m->proto_idx];
     const char *rt = smali_res(ctx,2,p->return_type_idx);
-    char pbuf[1024] = "";
+    static char pbuf[65536]; pbuf[0] = 0;
     if (p->params_off && p->params_off+4 <= ctx->size) {
         uint32_t po=p->params_off, pc;
         memcpy(&pc, ctx->data+po, 4); po += 4;
-        if (po+pc*2 <= ctx->size) for (uint32_t i=0; i<pc && i<40; i++) {
+        if (po+pc*2 <= ctx->size) for (uint32_t i=0; i<pc; i++) {
             uint16_t ti; memcpy(&ti, ctx->data+po+i*2, 2);
             const char *pt = smali_res(ctx,2,ti);
             strncat(pbuf, pt ?: "?", sizeof(pbuf)-strlen(pbuf)-1);

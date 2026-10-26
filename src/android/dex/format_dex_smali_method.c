@@ -52,18 +52,23 @@ static void emit_access_comment(smali_sb *s, dex_ctx *ctx, uint32_t method_idx) 
     }
 }
 
-#define NL 256
-#define MAX_TRIES 64
+#define MAX_CATCH 8
 #define DBG_LINE_BASE (-4)
 #define DBG_LINE_RANGE 15
+
+/* Signed hex literal as baksmali prints it; wide adds the L suffix. */
+static void smali_lit(smali_sb *s, int64_t v, int wide) {
+    if (v < 0) smali_sf(s, "-0x%llx%s", (unsigned long long)(0 - (uint64_t)v), wide ? "L" : "");
+    else smali_sf(s, "0x%llx%s", (unsigned long long)v, wide ? "L" : "");
+}
 
 typedef struct {
     uint32_t start_addr;
     uint32_t insn_count;
     uint32_t catch_all_addr;
     uint32_t catch_type_count;
-    uint32_t catch_types[8];
-    uint32_t catch_addrs[8];
+    uint32_t catch_types[MAX_CATCH];
+    uint32_t catch_addrs[MAX_CATCH];
 } try_block_t;
 
 typedef struct {
@@ -81,9 +86,10 @@ static int emit_labels_at(smali_sb *s, uint32_t i, const uint32_t *lo,
                 smali_sf(s, "    :cond_%x\n", i);
             if (lkinds[li] & 2)
                 smali_sf(s, "    :goto_%x\n", i);
-            if (lkinds[li] & 4)
-                if (!(lkinds[li] & 64))
-                    smali_sf(s, "    :catch_%x\n", i);
+            if ((lkinds[li] & 128) || ((lkinds[li] & 4) && !(lkinds[li] & 64))) {
+                /* a handler can serve typed catches and a catch-all at once */
+                smali_sf(s, "    :catch_%x\n", i);
+            }
             if (lkinds[li] & 64)
                 smali_sf(s, "    :catchall_%x\n", i);
             if (lkinds[li] & 8)
@@ -131,7 +137,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
     uint32_t fl = me->access_flags;
     const char *mn = mi->name_idx < (uint32_t)ctx->sp.count
                      ? ctx->sp.strings[mi->name_idx] : "??";
-    char protobuf[512];
+    static char protobuf[65536 + 8];
     smali_mproto(ctx, me->method_idx, protobuf, sizeof(protobuf));
 
     if (me->code_off == 0 || me->code_off + 16 > ctx->size) {
@@ -180,9 +186,15 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
     }
 
     /* parse debug info for .line entries and .param names */
-    line_entry_t lines[NL]; int line_count = 0;
+    /* label/line tables are sized from the code length so big obfuscated methods never overflow */
+    const uint32_t nl = isz + 8;
+    line_entry_t *lines = malloc(nl * sizeof(line_entry_t)); int line_count = 0;
+    uint32_t *lo = malloc(nl * sizeof(uint32_t)); int lc = 0;
+    uint8_t *lkinds = calloc(nl, 1);
+    try_block_t *blocks = malloc((tries ? tries : 1) * sizeof(try_block_t));
+    if (!lines || !lo || !lkinds || !blocks) { free(lines); free(lo); free(lkinds); free(blocks); return -1; }
     int has_prologue = 0;
-    char *param_names[16]; int param_name_count = 0;
+    char *param_names[256]; int param_name_count = 0;
     memset(param_names, 0, sizeof(param_names));
 
     if (dbg_off != 0 && dbg_off < ctx->size - 1) {
@@ -196,7 +208,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         smali_uleb(dp, &params_sz, &dp);
         (void)start_line;
         /* param names: uleb128 string_id indices */
-        for (uint32_t pi = 0; pi < params_sz && pi < 16; pi++) {
+        for (uint32_t pi = 0; pi < params_sz && pi < 256; pi++) {
             uint32_t name_idx;
             smali_uleb(dp, &name_idx, &dp);
             if (name_idx < (uint32_t)ctx->sp.count && ctx->sp.strings[name_idx]) {
@@ -206,9 +218,8 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         }
 
         /* Parse bytecode until DBG_END_SEQUENCE */
-        int cur_line = 0;
+        int cur_line = (int)start_line;
         uint32_t cur_addr = 0;
-        int saw_start = 0;
 
         while (dp < dend - 1) {
             uint8_t opcode = *dp++;
@@ -219,12 +230,8 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                 uint8_t adj = opcode - 0x0A;
                 cur_addr += (uint32_t)(adj / DBG_LINE_RANGE);
                 cur_line += DBG_LINE_BASE + (adj % DBG_LINE_RANGE);
-                if (!saw_start) {
-                    cur_line = (int)start_line + cur_line - DBG_LINE_BASE;
-                    saw_start = 1;
-                }
                 /* Record line entry for this address */
-                if (line_count < NL && cur_addr < isz) {
+                if (line_count < nl && cur_addr < isz) {
                     lines[line_count].addr = cur_addr;
                     lines[line_count].line = cur_line;
                     line_count++;
@@ -269,7 +276,6 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
     }
 
     /* try/catch blocks */
-    try_block_t blocks[MAX_TRIES];
     int block_count = 0;
     if (tries > 0) {
         uint32_t insns_end = 16 + isz * 2;
@@ -293,13 +299,12 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
 
             int32_t size; smali_sleb(hp, &size, &hp);
             uint32_t count = (uint32_t)(size < 0 ? -size : size);
-            tb->catch_type_count = count;
+            tb->catch_type_count = count > MAX_CATCH ? MAX_CATCH : count;
 
-            for (uint32_t ci = 0; ci < count && ci < 8; ci++) {
+            for (uint32_t ci = 0; ci < count; ci++) {
                 uint32_t type_idx; smali_uleb(hp, &type_idx, &hp);
                 uint32_t addr; smali_uleb(hp, &addr, &hp);
-                tb->catch_types[ci] = type_idx;
-                tb->catch_addrs[ci] = addr;
+                if (ci < MAX_CATCH) { tb->catch_types[ci] = type_idx; tb->catch_addrs[ci] = addr; }
             }
             if (size <= 0) {
                 smali_uleb(hp, &tb->catch_all_addr, &hp);
@@ -308,9 +313,6 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
     }
 
     /* pass 1: collect branch targets and payload offsets */
-    uint32_t lo[NL]; int lc = 0;
-    uint8_t lkinds[NL];
-    for (int li = 0; li < NL; li++) lkinds[li] = 0;
     /* also collect payload targets from packed/sparse-switch/fill-array-data */
     for (int i2 = 0; (uint32_t)i2 < isz; ) {
         uint32_t op, vA, vB, vC, rf; int32_t lt_val;
@@ -322,7 +324,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                  (fm==18 ? (int32_t)rf : 0));
         if (bo) {
             int t = i2 + bo;
-            if (t >= 0 && (uint32_t)t < isz && lc < NL) {
+            if (t >= 0 && (uint32_t)t < isz && lc < nl) {
                 int dup = 0;
                 for (int di = 0; di < lc; di++)
                     if (lo[di] == (uint32_t)t) { dup = 1; break; }
@@ -340,7 +342,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                     for (int si = 0; si < (int)psize; si++) {
                         int32_t ptarget = (int32_t)(payload[4 + si*2] | (payload[5 + si*2] << 16));
                         uint32_t abs_t = (uint32_t)((int32_t)i2 + ptarget);
-                        if (lc < NL) {
+                        if (lc < nl) {
                             int dup3 = 0;
                             for (int di = 0; di < lc; di++)
                                 if (lo[di] == abs_t) { lkinds[di] |= 8; dup3 = 1; break; }
@@ -352,7 +354,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                      for (int si = 0; si < (int)psize; si++) {
                          int32_t ptarget = (int32_t)(payload[2 + (int)psize*2 + si*2] | (payload[3 + (int)psize*2 + si*2] << 16));
                          uint32_t abs_t = (uint32_t)((int32_t)i2 + ptarget);
-                         if (lc < NL) {
+                         if (lc < nl) {
                              int dup3 = 0;
                              for (int di = 0; di < lc; di++)
                                  if (lo[di] == abs_t) { lkinds[di] |= 16; dup3 = 1; break; }
@@ -369,21 +371,21 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                 uint32_t h = blocks[bi2].catch_addrs[ci];
                 int dup2 = 0;
                 for (int di = 0; di < lc; di++)
-                    if (lo[di] == h) { lkinds[di] |= 4; dup2 = 1; break; }
-                if (!dup2 && lc < NL) { lo[lc] = h; lkinds[lc] = 4; lc++; }
+                    if (lo[di] == h) { lkinds[di] |= 4 | 128; dup2 = 1; break; }
+                if (!dup2 && lc < nl) { lo[lc] = h; lkinds[lc] = 4 | 128; lc++; }
             }
             if (blocks[bi2].catch_all_addr != 0xFFFFFFFF && blocks[bi2].catch_all_addr < isz) {
                 int dup2 = 0;
                 for (int di = 0; di < lc; di++)
                     if (lo[di] == blocks[bi2].catch_all_addr) { lkinds[di] |= 64; dup2 = 1; break; }
-                if (!dup2 && lc < NL) { lo[lc] = blocks[bi2].catch_all_addr; lkinds[lc] = 64; lc++; }
+                if (!dup2 && lc < nl) { lo[lc] = blocks[bi2].catch_all_addr; lkinds[lc] = 64; lc++; }
             }
             /* end_off for try_end label */
             if (end_off < isz) {
                 int dup2 = 0;
                 for (int di = 0; di < lc; di++)
                     if (lo[di] == end_off) { dup2 = 1; break; }
-                if (!dup2 && lc < NL) lo[lc++] = end_off;
+                if (!dup2 && lc < nl) lo[lc++] = end_off;
             }
         }
         i2 += w;
@@ -419,7 +421,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         for (uint32_t ci = 0; ci < blocks[bi2].catch_type_count; ci++) {
             for (int li = 0; li < lc; li++) {
                 if (lo[li] == blocks[bi2].catch_addrs[ci])
-                    lkinds[li] |= 4;
+                    lkinds[li] |= 4 | 128;
             }
         }
         if (blocks[bi2].catch_all_addr != 0xFFFFFFFF) {
@@ -434,7 +436,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
             for (int li = 0; li < lc; li++) {
                 if (lo[li] == blocks[bi2].start_addr) { lkinds[li] |= 32; dup2 = 1; break; }
             }
-            if (!dup2 && lc < NL) { lo[lc] = blocks[bi2].start_addr; lkinds[lc] = 32; lc++; }
+            if (!dup2 && lc < nl) { lo[lc] = blocks[bi2].start_addr; lkinds[lc] = 32; lc++; }
         }
     }
 
@@ -444,9 +446,10 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         smali_sa(s, "    .prologue\n");
 
     /* Collect payload offsets for packed-switch, sparse-switch, fill-array-data */
-    #define MAX_PAYLOADS 32
-    uint32_t payload_offs[MAX_PAYLOADS];
-    uint32_t payload_srcs[MAX_PAYLOADS];
+    uint32_t max_payloads = isz / 3 + 1;
+    uint32_t *payload_offs = malloc(max_payloads * 2 * sizeof(uint32_t));
+    if (!payload_offs) { free(lines); free(lo); free(lkinds); free(blocks); return -1; }
+    uint32_t *payload_srcs = payload_offs + max_payloads;
     int payload_count = 0;
     for (int i2 = 0; (uint32_t)i2 < isz; ) {
         uint32_t op2, vA2, vB2, vC2, rf2; int32_t lt2;
@@ -455,7 +458,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         int fm2 = dex_insn_fmt((uint8_t)op2);
         if (fm2 == 18) {
             uint32_t toff = (uint32_t)i2 + (uint32_t)rf2;
-            if (toff + 4 <= isz && rf2 > 0 && payload_count < MAX_PAYLOADS) {
+            if (toff + 4 <= isz && rf2 > 0 && (uint32_t)payload_count < max_payloads) {
                 payload_offs[payload_count] = toff;
                 payload_srcs[payload_count] = i2;
                 payload_count++;
@@ -533,7 +536,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                     smali_sa(s, "    .end array-data\n");
                     /* advance past the payload data (pad to 4-byte alignment, then 2 code units for header) */
                     uint32_t data_bytes = count * elem_width;
-                    uint32_t pw = (4 + data_bytes + 1) / 2;
+                    uint32_t pw = 4 + (data_bytes + 1) / 2;
                     for (uint32_t ppi = 0; ppi < pw; ppi++) {
                         i += 1;
                     }
@@ -583,8 +586,8 @@ uint32_t op, vA, vB, vC, rf; int32_t lt_val;
             break;
 case 19:
             if (op == 0x19) {
-                uint64_t v64 = (uint64_t)rf << 48;
-                smali_sf(s, " %s, 0x%llxL", RN(vA), (unsigned long long)v64);
+                smali_sf(s, " %s, ", RN(vA));
+                smali_lit(s, (int64_t)((uint64_t)rf << 48), 1);
             } else {
                 uint32_t v32 = (uint32_t)rf << 16;
                 smali_sf(s, " %s, 0x%x", RN(vA), v32);
@@ -615,7 +618,7 @@ case 19:
         case 10: {
             int br=(int32_t)(int16_t)rf;
             smali_sf(s," %s, %s, :cond_%x", RN(vA), RN(vB), i+br); break; }
-        case 11: smali_sf(s," %s, 0x%x", RN(vA), (int16_t)rf); break;
+        case 11: smali_sf(s," %s, ", RN(vA)); smali_lit(s, (int16_t)rf, op == 0x16); break;
         case 20: { int16_t v22s = (int16_t)rf; if (v22s < 0) smali_sf(s," %s, %s, -0x%x", RN(vA), RN(vB), -(int32_t)v22s);
                 else smali_sf(s," %s, %s, 0x%x", RN(vA), RN(vB), (uint16_t)v22s); break; }
         case 24: smali_sf(s," %s, %s", RN(vA), RN(vB)); break;
@@ -635,7 +638,8 @@ case 19:
         }
         case 15: smali_sf(s," {%s .. %s}, %s", RN(vC), RN(vC+vA-1),
                           smali_res(ctx,k,rf)); break;
-        case 16: if ((int32_t)lt_val < 0) smali_sf(s," %s, -0x%x", RN(vA), -(int32_t)lt_val);
+        case 16: if (op == 0x17) { smali_sf(s," %s, ", RN(vA)); smali_lit(s, (int32_t)lt_val, 1); }
+            else if ((int32_t)lt_val < 0) smali_sf(s," %s, -0x%x", RN(vA), (uint32_t)0 - (uint32_t)lt_val);
             else {
                 smali_sf(s," %s, 0x%x", RN(vA), (uint32_t)lt_val);
                 if (op == 0x14 && (uint32_t)lt_val != 0) {
@@ -652,7 +656,7 @@ case 19:
         case 17: {
             uint64_t v=0; for(int wi=0;wi<4;wi++)
                 v|=(uint64_t)insns[i+1+wi]<<(wi*16);
-            smali_sf(s," %s, 0x%llx",RN(vA),(unsigned long long)v); break;
+            smali_sf(s," %s, ",RN(vA)); smali_lit(s, (int64_t)v, 1); break;
         }
         case 18: {
             uint32_t toff = (uint32_t)i + rf;
@@ -680,5 +684,6 @@ int is_last = ((uint32_t)(i + w) >= isz) ? 1 : 0;
         i += w;
         next_insn:;
     }
+    free(payload_offs); free(lines); free(lo); free(lkinds); free(blocks);
     return smali_sa(s, ".end method\n");
 }// Debug: temporarily add to trace

@@ -1,5 +1,6 @@
 #include "smali_debug.h"
 #include "smali_pool.h"
+#include "smali_encoder.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -36,19 +37,9 @@ uint32_t write_debug_info(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def
 
     int cur_line = start_line;
     uint32_t cur_addr = 0;
-    uint32_t insn_offsets[4096];
-    for (uint32_t i = 0; i < m->insns_count && i < 4096; i++) {
-        insn_offsets[i] = cur_addr;
-        switch (m->insns[i].fmt) {
-            case 0: case 1: case 21: case 2: case 3: case 4: cur_addr += 1; break;
-            case 5: case 7: case 19: case 8: case 9: case 10: case 11: case 12: case 22: case 13: case 23: cur_addr += 2; break;
-            case 6: case 14: case 15: case 16: case 18: case 24: case 25: cur_addr += 3; break;
-            case 101: cur_addr += 4 + m->insns[i].payload_targets_count * 2; break;
-            case 102: cur_addr += 2 + m->insns[i].payload_targets_count * 4; break;
-            case 103: cur_addr += (m->insns[i].payload_data_len + 5) / 2 + 2; break;
-            default: cur_addr += 1; break;
-        }
-    }
+    uint32_t *insn_offsets = malloc((m->insns_count + 1) * sizeof(uint32_t));
+    if (!insn_offsets) return 0;
+    smali_compute_insn_offsets(m, insn_offsets);
 
     if (m->prologue_set && m->insns_count > 0) {
         buf_write_u8(b, 0x07);
@@ -81,49 +72,27 @@ uint32_t write_debug_info(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def
     cur_line = start_line;
     cur_addr = 0;
     for (uint32_t i = 0; i < m->insns_count; i++) {
-        uint32_t iaddr = insn_offsets[i];
-        uint32_t addr_diff = iaddr - cur_addr;
-
-        if (m->insns[i].line_number > 0) {
-            int line_diff = m->insns[i].line_number - cur_line;
-
-            while (addr_diff > 0 || line_diff != 0) {
-                int use_special = 0;
-                int adj = line_diff - DBG_LINE_BASE;
-                if (adj >= 0 && addr_diff <= (255 - 0x0A) / DBG_LINE_RANGE) {
-                    int max_adv = (255 - 0x0A) / DBG_LINE_RANGE;
-                    if (addr_diff <= (uint32_t)max_adv && adj == line_diff - DBG_LINE_BASE) {
-                        use_special = 1;
-                    }
-                }
-
-                if (use_special && addr_diff > 0) {
-                    uint8_t special = 0x0A + (addr_diff * DBG_LINE_RANGE + (line_diff - DBG_LINE_BASE));
-                    buf_write_u8(b, special);
-                    cur_line = m->insns[i].line_number;
-                    cur_addr = iaddr;
-                    addr_diff = 0;
-                    line_diff = 0;
-                } else if (addr_diff > 0) {
-                    buf_write_u8(b, 0x01);
-                    buf_write_uleb128(b, addr_diff);
-                    cur_addr = iaddr;
-                    addr_diff = 0;
-                } else if (line_diff != 0) {
-                    buf_write_u8(b, 0x02);
-                    buf_write_sleb128(b, (int32_t)line_diff);
-                    cur_line = m->insns[i].line_number;
-                    line_diff = 0;
-                } else {
-                    break;
-                }
-            }
-        } else if (addr_diff > 0) {
+        int ln = m->insns[i].line_number;
+        if (ln <= 0) continue;
+        uint32_t addr_diff = insn_offsets[i] - cur_addr;
+        int line_diff = ln - cur_line;
+        if (line_diff < DBG_LINE_BASE || line_diff >= DBG_LINE_BASE + DBG_LINE_RANGE) {
+            buf_write_u8(b, 0x02);
+            buf_write_sleb128(b, line_diff);
+            cur_line = ln;
+            line_diff = 0;
+        }
+        if (addr_diff > 15) {
             buf_write_u8(b, 0x01);
             buf_write_uleb128(b, addr_diff);
-            cur_addr = iaddr;
+            cur_addr = insn_offsets[i];
+            addr_diff = 0;
         }
+        buf_write_u8(b, (uint8_t)(0x0A + addr_diff * DBG_LINE_RANGE + (line_diff - DBG_LINE_BASE)));
+        cur_line = ln;
+        cur_addr = insn_offsets[i];
     }
+    free(insn_offsets);
 
     buf_write_u8(b, 0x00);
     (void)has_locals;

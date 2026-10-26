@@ -48,11 +48,13 @@ char* execute_smali_assemble(cJSON* args) {
     cJSON* out_dex_obj = cJSON_GetObjectItem(args, "out_dex");
     if (!src_dir_obj || !cJSON_IsString(src_dir_obj) || !out_dex_obj || !cJSON_IsString(out_dex_obj))
         return strdup("{\"error\": \"Missing src_dir or out_dex path\"}");
-    int ret = smali_assemble(src_dir_obj->valuestring, out_dex_obj->valuestring);
+    int dex_count = 0;
+    int ret = smali_assemble_n(src_dir_obj->valuestring, out_dex_obj->valuestring, &dex_count);
     cJSON *res = cJSON_CreateObject();
     cJSON_AddNumberToObject(res, "status", ret);
     if (ret == 0) {
         cJSON_AddStringToObject(res, "output", out_dex_obj->valuestring);
+        cJSON_AddNumberToObject(res, "dex_count", dex_count);
     } else {
         cJSON_AddStringToObject(res, "error", "Assembly failed");
     }
@@ -240,9 +242,29 @@ char* execute_read_dex(cJSON* args) {
             char *semi = strchr(class_line, ';');
             if (semi) {
                 *semi = '\0';
-                char *desc = strrchr(class_line, 'L');
-                if (desc) {
-                    desc++; // Skip the 'L'
+                /* The class descriptor is the last whitespace-delimited token of the
+                 * ".class <flags...> Lpkg/Name" line. Searching for the last 'L'
+                 * anywhere in the line mangles names and drops the package path
+                 * (e.g. "@DynamiteLoaderClassLoader" -> "oader"). */
+                char *desc = strrchr(class_line, ' ');
+                desc = desc ? desc + 1 : class_line;
+                if (*desc == 'L') desc++; // Skip the 'L' of the descriptor
+                /* The descriptor comes straight out of the DEX file, so a
+                 * hostile APK can try to escape out_dir with ".." segments.
+                 * Reject any path component that is not a plain name. */
+                if (*desc) {
+                    for (const char *q = desc; *q; ) {
+                        const char *seg = q;
+                        while (*q && *q != '/') q++;
+                        size_t seg_len = (size_t)(q - seg);
+                        if (seg_len == 2 && seg[0] == '.' && seg[1] == '.') {
+                            desc = NULL;
+                            break;
+                        }
+                        if (*q == '/') q++;
+                    }
+                }
+                if (desc && *desc) {
                     char filepath[1024];
                     snprintf(filepath, sizeof(filepath), "%s/%s.smali", out_dir, desc);
                     

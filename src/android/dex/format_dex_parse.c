@@ -26,11 +26,15 @@ static char *read_dex_string(const uint8_t *data, size_t size, uint32_t off) {
     uint32_t len;
     int adv = dex_read_uleb128(data + off, &len);
     off += adv;
-    if (off + len > size) return NULL;
-    char *s = malloc(len + 1);
+    /* len counts UTF-16 units, not bytes: the MUTF-8 data runs to its NUL terminator */
+    (void)len;
+    const uint8_t *end = memchr(data + off, 0, size - off);
+    if (!end) return NULL;
+    size_t blen = (size_t)(end - (data + off));
+    char *s = malloc(blen + 1);
     if (!s) return NULL;
-    memcpy(s, data + off, len);
-    s[len] = '\0';
+    memcpy(s, data + off, blen);
+    s[blen] = '\0';
     return s;
 }
 
@@ -181,7 +185,20 @@ dex_ctx *dex_parse(const uint8_t *data, size_t size) {
     if (!data || size < 0x70) return NULL;
     uint32_t m0, m1;
     r32(data, &m0); r32(data + 4, &m1);
-    if (m0 != 0x0A786564 || m1 != 0x00353330) return NULL;
+    if (m0 != 0x0A786564) return NULL;
+    /* The magic is "dex\n" followed by a three digit version and a NUL.
+     * ART accepts 035, 037, 038, 039 and 040; 036 was skipped by ART
+     * because of an old Dalvik bug, and 041 is the multi-header container
+     * format whose header layout differs (0x78 bytes), so it is rejected
+     * here as well. */
+    if (((m1 >> 24) & 0xFFu) != 0x00u) return NULL;
+    uint32_t ver = 0;
+    for (int i = 0; i < 3; i++) {
+        uint32_t d = (m1 >> (8 * i)) & 0xFFu;
+        if (d < '0' || d > '9') return NULL;
+        ver = ver * 10 + (d - '0');
+    }
+    if (ver != 35 && ver != 37 && ver != 38 && ver != 39 && ver != 40) return NULL;
 
     dex_ctx *ctx = calloc(1, sizeof(dex_ctx));
     if (!ctx) return NULL;

@@ -94,6 +94,9 @@ int smali_sf(smali_sb *s, const char *fmt, ...);
 // Smali utilities shared across modules
 const char *smali_aflags(uint32_t f);
 char *smali_tsm(const char *d);
+int dex_format_value(const uint8_t **pp, const uint8_t *end, char *buf, size_t sz, dex_ctx *ctx);
+int dex_skip_value(const uint8_t **pp, const uint8_t *end);
+void dex_static_value(dex_ctx *ctx, uint32_t values_off, int idx, char *buf, size_t sz);
 const char *smali_res(dex_ctx *ctx, int k, uint32_t i);
 void smali_mproto(dex_ctx *ctx, uint32_t mi, char *b, size_t z);
 const char *smali_reg_name(uint32_t r, uint32_t regs, uint32_t ins_size);

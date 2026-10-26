@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#define MAX_HANDLERS 64
+
 typedef struct {
     uint32_t type_idx;
     uint32_t handler_addr;
@@ -14,7 +16,7 @@ typedef struct {
 typedef struct {
     uint32_t start_addr;
     uint32_t end_addr;
-    write_handler_t handlers[16];
+    write_handler_t handlers[MAX_HANDLERS];
     uint32_t handlers_count;
 } write_try_range_t;
 
@@ -46,26 +48,13 @@ uint32_t write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_
     uint16_t *code_buf = malloc(max_units * sizeof(uint16_t));
     uint32_t code_words = smali_encode_method_insns(ctx, m, code_buf);
 
-    write_try_range_t ranges[128];
+    write_try_range_t *ranges = calloc(m->catches_count ? m->catches_count : 1, sizeof(write_try_range_t));
     uint32_t range_count = 0;
 
-    if (m->catches_count > 0 && m->catches_count <= 128) {
+    if (m->catches_count > 0) {
         uint32_t *insn_offsets = malloc((m->insns_count + 1) * sizeof(uint32_t));
-        uint32_t cur_offset = 0;
-        for (uint32_t i = 0; i < m->insns_count; i++) {
-            insn_offsets[i] = cur_offset;
-            switch (m->insns[i].fmt) {
-                case 0: case 1: case 21: case 2: case 3: case 4: cur_offset += 1; break;
-                case 5: case 7: case 19: case 8: case 9: case 10: case 11: case 12: case 22: case 13: case 23: cur_offset += 2; break;
-                case 6: case 14: case 15: case 16: case 18: case 24: case 25: cur_offset += 3; break;
-                case 101: cur_offset += 4 + m->insns[i].payload_targets_count * 2; break;
-                case 102: cur_offset += 2 + m->insns[i].payload_targets_count * 4; break;
-                case 103: cur_offset += 2 + (m->insns[i].payload_data_len + 1) / 2 + 2; break;
-                default: cur_offset += 1; break;
-            }
-        }
-        insn_offsets[m->insns_count] = cur_offset;
-
+        smali_compute_insn_offsets(m, insn_offsets);
+        uint32_t cur_offset = 0; (void)cur_offset;
         for (uint32_t c_idx = 0; c_idx < m->catches_count; c_idx++) {
             smali_catch_t *ctch = &m->catches[c_idx];
             int found_start = 0, found_end = 0, found_handler = 0;
@@ -112,6 +101,7 @@ uint32_t write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_
                 rng->handlers[0].handler_addr = handler_addr;
             } else {
                 write_try_range_t *rng = &ranges[found_range];
+                if (rng->handlers_count >= MAX_HANDLERS) continue;
                 if (type_idx == 0xFFFFFFFF) {
                     rng->handlers[rng->handlers_count++] = (write_handler_t){type_idx, handler_addr};
                 } else {
@@ -254,6 +244,7 @@ uint32_t write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_
     }
 
     free(code_buf);
+    free(ranges);
     align_4(b);
     return offset;
 }

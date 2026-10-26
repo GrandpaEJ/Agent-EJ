@@ -44,7 +44,7 @@ typedef struct {
     uint32_t vC;
     uint32_t regs[5];
     char *ref_str;
-    int32_t lit;
+    int64_t lit;
     char *label_target;
     int line_number;
 

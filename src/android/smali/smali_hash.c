@@ -23,8 +23,8 @@ void smali_sha1(const uint8_t *data, size_t len, uint8_t *out) {
     for (size_t off = 0; off < padded; off += 64) {
         uint32_t w[80];
         for (int i = 0; i < 16; i++)
-            w[i] = ((uint32_t)m[off + i * 4]) | ((uint32_t)m[off + i * 4 + 1] << 8) |
-                   ((uint32_t)m[off + i * 4 + 2] << 16) | ((uint32_t)m[off + i * 4 + 3] << 24);
+            w[i] = ((uint32_t)m[off + i * 4] << 24) | ((uint32_t)m[off + i * 4 + 1] << 16) |
+                   ((uint32_t)m[off + i * 4 + 2] << 8) | (uint32_t)m[off + i * 4 + 3];
         for (int i = 16; i < 80; i++) {
             uint32_t x = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16];
             w[i] = (x << 1) | (x >> 31);
@@ -40,10 +40,9 @@ void smali_sha1(const uint8_t *data, size_t len, uint8_t *out) {
             e = d; d = c; c = (b << 30) | (b >> 2); b = a; a = t;
         }
         h0 += a; h1 += b; h2 += c; h3 += d; h4 += e;
-        uint32_t hash_vals[5] = {h0, h1, h2, h3, h4};
-        for (int i = 0; i < 5; i++) {
-            for (int j = 0; j < 4; j++) out[i * 4 + j] = (uint8_t)((hash_vals[i] >> (j * 8)) & 0xFF);
-        }
     }
+    uint32_t hash_vals[5] = {h0, h1, h2, h3, h4};
+    for (int i = 0; i < 5; i++)
+        for (int j = 0; j < 4; j++) out[i * 4 + j] = (uint8_t)(hash_vals[i] >> (24 - j * 8));
     free(m);
 }
