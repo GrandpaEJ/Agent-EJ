@@ -3,6 +3,7 @@
 #include "smali_value.h"
 #include "smali_buf.h"
 #include "smali_pool.h"
+#include "smali_typelist.h"
 #include "smali_internal.h"
 #include <string.h>
 #include <stdlib.h>
@@ -52,12 +53,6 @@ static size_t mutf8_decode(const uint8_t *up, size_t raw_len, size_t j, size_t *
     /* malformed or truncated: emit the byte as-is, one unit */
     *units = 1;
     return 1;
-}
-
-static int comp_u32_tl(const void *a, const void *b) {
-    uint32_t ua = *(const uint32_t *)a;
-    uint32_t ub = *(const uint32_t *)b;
-    return (ua > ub) - (ua < ub);
 }
 
 static int comp_map_entries(const void *a, const void *b) {
@@ -204,81 +199,29 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
     }
     align_4(&b);
 
+    /* Proto parameter lists and class interface lists are both type_list
+     * items; the registry writes every distinct list only once and lets the
+     * other references share it. */
+    smali_typelist_reg_t tl_reg;
+    smali_typelist_reg_init(&tl_reg);
+
     uint32_t *proto_param_offsets = malloc(proto_count * 4);
     for (uint32_t i = 0; i < proto_count; i++) {
-        const char *sig = ctx->protos.strings[i];
-        uint32_t pcount = 0;
-        uint32_t ptypes[256];
-        const char *p = sig;
-        if (*p == '(') p++;
-        while (*p && *p != ')') {
-            const char *type_start = p;
-            if (*p == 'L') {
-                while (*p && *p != ';') p++;
-                if (*p) p++;
-            } else if (*p == '[') {
-                while (*p == '[') p++;
-                if (*p == 'L') { while (*p && *p != ';') p++; if (*p) p++; }
-                else p++;
-            } else { p++; }
-            char *type_str = strndup(type_start, p - type_start);
-            if (pcount < 256) ptypes[pcount] = smali_pool_find(&ctx->types, type_str);
-            pcount++;
-            free(type_str);
-        }
-        if (pcount > 0) {
-            uint32_t existing_offset = 0;
-            for (uint32_t prev = 0; prev < i; prev++) {
-                if (proto_param_offsets[prev] != 0) {
-                    uint32_t off = proto_param_offsets[prev];
-                    uint32_t prev_count = *(uint32_t*)(b.buf + off);
-                    if (prev_count == pcount) {
-                        int match = 1;
-                        uint16_t *prev_types = (uint16_t*)(b.buf + off + 4);
-                        for (uint32_t k = 0; k < pcount; k++) {
-                            if (prev_types[k] != ptypes[k]) {
-                                match = 0;
-                                break;
-                            }
-                        }
-                        if (match) {
-                            existing_offset = off;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (existing_offset != 0) {
-                proto_param_offsets[i] = existing_offset;
-            } else {
-                align_4(&b);
-                proto_param_offsets[i] = b.len;
-                buf_write_u32(&b, pcount);
-                for (uint32_t j = 0; j < pcount; j++) {
-                    buf_write_u16(&b, ptypes[j]);
-                }
-            }
-        } else {
-            proto_param_offsets[i] = 0;
-        }
+        uint16_t *types = NULL;
+        uint32_t pcount = smali_typelist_from_proto(&ctx->types, ctx->protos.strings[i], &types);
+        proto_param_offsets[i] = smali_typelist_write(&tl_reg, &b, types, pcount);
+        free(types);
     }
     align_4(&b);
 
     uint32_t *interfaces_offsets = malloc(class_count * 4);
     for (uint32_t i = 0; i < class_count; i++) {
         smali_class_def_t *c = &ctx->classes[i];
-        if (c->interface_count > 0) {
-            align_4(&b);
-            interfaces_offsets[i] = b.len;
-            buf_write_u32(&b, c->interface_count);
-            for (uint32_t j = 0; j < c->interface_count; j++) {
-                uint32_t type_idx = smali_pool_find(&ctx->types, c->interfaces[j]);
-                buf_write_u16(&b, (uint16_t)type_idx);
-            }
-        } else {
-            interfaces_offsets[i] = 0;
-        }
+        uint16_t *types = NULL;
+        uint32_t n = smali_typelist_from_descriptors(&ctx->types, c->interfaces,
+                                                      c->interface_count, &types);
+        interfaces_offsets[i] = smali_typelist_write(&tl_reg, &b, types, n);
+        free(types);
     }
     align_4(&b);
 
@@ -1136,34 +1079,11 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         entries[entry_count++] = (map_item_entry_t){0x2002, string_count, string_offsets[0]};
     }
 
-    uint32_t first_type_list_off = 0;
-    uint32_t type_list_count = 0;
-    uint32_t *all_tl_offs = malloc((proto_count + class_count) * sizeof(uint32_t));
-    uint32_t tl_offs_count = 0;
-    for (uint32_t i = 0; i < proto_count; i++) {
-        if (proto_param_offsets[i] != 0) {
-            all_tl_offs[tl_offs_count++] = proto_param_offsets[i];
-        }
+    /* Every distinct type list was written once by the registry. */
+    if (tl_reg.count > 0) {
+        entries[entry_count++] = (map_item_entry_t){0x1001, tl_reg.count, tl_reg.first_offset};
     }
-    for (uint32_t i = 0; i < class_count; i++) {
-        if (interfaces_offsets[i] != 0) {
-            all_tl_offs[tl_offs_count++] = interfaces_offsets[i];
-        }
-    }
-    if (tl_offs_count > 0) {
-        qsort(all_tl_offs, tl_offs_count, sizeof(uint32_t), comp_u32_tl);
-        first_type_list_off = all_tl_offs[0];
-        type_list_count = 1;
-        for (uint32_t i = 1; i < tl_offs_count; i++) {
-            if (all_tl_offs[i] != all_tl_offs[i - 1]) {
-                type_list_count++;
-            }
-        }
-    }
-    free(all_tl_offs);
-    if (type_list_count > 0) {
-        entries[entry_count++] = (map_item_entry_t){0x1001, type_list_count, first_type_list_off};
-    }
+    smali_typelist_reg_free(&tl_reg);
 
     uint32_t first_code_off = 0;
     uint32_t total_code_count = 0;
