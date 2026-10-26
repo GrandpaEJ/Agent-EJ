@@ -2,7 +2,7 @@ CC = zig cc -target x86_64-linux-musl
 OPT = -O0 -g
 WARN = -Wall -Wextra
 STD = -std=c11 -D_POSIX_C_SOURCE=200809L
-INC = -Iinclude -Isrc/android/smali -Ivendor/cJSON -Ivendor/linenoise
+INC = -Iinclude -Isrc/android/smali -Isrc/android/arsc -Ivendor/cJSON -Ivendor/linenoise
 LTO = -flto -ffunction-sections -fdata-sections
 
 CFLAGS = $(OPT) $(WARN) $(STD) $(INC) $(LTO)

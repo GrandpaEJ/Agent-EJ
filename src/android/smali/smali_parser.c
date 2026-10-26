@@ -1,6 +1,7 @@
 #include "smali_parser.h"
 #include "smali_lexer.h"
 #include "smali_pool.h"
+#include "smali_error.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -175,10 +176,54 @@ static uint32_t calculate_ins_count(const char *sig, uint32_t access_flags) {
     return count;
 }
 
+/* Normalises a method signature spec "name(params)return-type" into the DEX
+ * form: the parameter types are concatenated without the separators the smali
+ * source may use. The DEX signature has neither spaces nor commas, and a spec
+ * that is truncated at the first space silently drops parameters ("a(I, I)V"
+ * would become "a(I"). Returns a malloc'd string, or NULL when the spec is
+ * not a signature at all. */
+static char *normalize_method_spec(const char *spec) {
+    const char *open = strchr(spec, '(');
+    if (!open) return NULL;
+    const char *close = strchr(open, ')');
+    if (!close) return NULL;
+
+    size_t name_len = (size_t)(open - spec);
+    while (name_len > 0 && (spec[name_len - 1] == ' ' || spec[name_len - 1] == '\t'))
+        name_len--;
+
+    const char *rt = close + 1;
+    while (*rt == ' ' || *rt == '\t') rt++;
+    size_t rt_len = strlen(rt);
+    while (rt_len > 0 && (rt[rt_len - 1] == ' ' || rt[rt_len - 1] == '\t' || rt[rt_len - 1] == '\r'))
+        rt_len--;
+
+    size_t plen = 0;
+    for (const char *q = open + 1; q < close; q++)
+        if (*q != ' ' && *q != '\t' && *q != ',') plen++;
+
+    char *out = malloc(name_len + plen + rt_len + 3);
+    if (!out) return NULL;
+    memcpy(out, spec, name_len);
+    out[name_len] = '(';
+    size_t w = name_len + 1;
+    for (const char *q = open + 1; q < close; q++) {
+        if (*q == ' ' || *q == '\t' || *q == ',') continue;
+        out[w++] = *q;
+    }
+    out[w++] = ')';
+    memcpy(out + w, rt, rt_len);
+    out[w + rt_len] = '\0';
+    return out;
+}
+
 int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
     char *text_copy = strdup(text);
     char *p = text_copy;
     smali_class_def_t *curr = NULL;
+    /* Source line of the construct being parsed (1-based). */
+    smali_line_t lc;
+    smali_line_init(&lc, text_copy, 1);
 
     while (*p) {
         while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
@@ -187,7 +232,11 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
         char *line_start = p;
         char *line_end = smali_eol(p);
         if (!line_end) line_end = p + strlen(p);
-        
+
+        /* The token starts here, so this is its source line. */
+        smali_line_sync(&lc, p);
+        uint32_t cur_line = lc.line;
+
         if (*line_start == '#') {
             p = line_end;
             continue;
@@ -221,16 +270,25 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                 }
                 next = smali_next_token(&p);
             }
+            if (!curr->descriptor) {
+                smali_fail_at(cur_line, "malformed .class directive (expected a type descriptor)");
+                free(tok); free(text_copy);
+                return -1;
+            }
+            free(tok); p = line_end; continue;
         } else if (strcmp(tok, ".super") == 0 && curr) {
             curr->super_class = smali_next_token(&p);
+            free(tok); p = line_end; continue;
         } else if (strcmp(tok, ".source") == 0 && curr) {
             curr->source_file = smali_next_token(&p);
+            free(tok); p = line_end; continue;
         } else if (strcmp(tok, ".implements") == 0 && curr) {
             char *iface = smali_next_token(&p);
             if (iface) {
                 curr->interfaces = realloc(curr->interfaces, (curr->interface_count + 1) * sizeof(char *));
                 curr->interfaces[curr->interface_count++] = iface;
             }
+            free(tok); p = line_end; continue;
         } else if (strcmp(tok, ".field") == 0 && curr) {
             uint32_t access_flags = 0;
             char *next = smali_next_token(&p);
@@ -248,7 +306,12 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
             }
             if (name_type) {
                 char *colon = strchr(name_type, ':');
-                if (colon) {
+                if (!colon) {
+                    smali_fail_at(cur_line, "malformed .field '%s' (expected name:type)", name_type);
+                    free(name_type); free(tok); free(text_copy);
+                    return -1;
+                }
+                {
                     *colon = '\0';
                     char *name = strdup(name_type);
                     char *type = strdup(colon + 1);
@@ -426,6 +489,29 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                 next = smali_next_token(&p);
             }
             if (name_sig) {
+                /* The signature may contain spaces after the parameter commas
+                 * ("a(I, I)V"), so the rest of the line completes the token
+                 * that was read above. */
+                size_t part_len = strlen(name_sig);
+                size_t rest_len = (size_t)(line_end - p);
+                char *raw = malloc(part_len + rest_len + 1);
+                if (!raw) { free(name_sig); free(tok); free(text_copy); return -1; }
+                memcpy(raw, name_sig, part_len);
+                memcpy(raw + part_len, p, rest_len);
+                raw[part_len + rest_len] = '\0';
+                char *hash = strchr(raw, '#');
+                if (hash) *hash = '\0';
+                char *spec = normalize_method_spec(raw);
+                free(raw);
+                if (!spec) {
+                    smali_fail_at(cur_line, "malformed .method '%s' (expected name(signature))", name_sig);
+                    free(name_sig); free(tok); free(text_copy);
+                    return -1;
+                }
+                free(name_sig);
+                name_sig = spec;
+                /* The method body starts on the following line. */
+                p = line_end;
                 char *paren = strchr(name_sig, '(');
                 if (paren) {
                     char *name = strndup(name_sig, paren - name_sig);
@@ -463,7 +549,10 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                     method->signature = sig;
                     method->ins_count = calculate_ins_count(sig, method->access_flags);
                     
-                    smali_parse_method_body(ctx, method, &p);
+                    if (smali_parse_method_body(ctx, method, &p, &lc) != 0) {
+                        free(name_sig); free(tok); free(text_copy);
+                        return -1;
+                    }
                 }
                 free(name_sig);
             }
@@ -484,6 +573,11 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                     if (vis_tok) free(vis_tok);
                 }
                 if (!ann->type) ann->type = smali_next_token(&p);
+                if (!ann->type) {
+                    smali_fail_at(cur_line, "malformed .annotation directive (expected a type)");
+                    free(tok); free(text_copy);
+                    return -1;
+                }
                 while (*p) {
                     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
                     if (*p == '#') { char *nl = smali_eol(p); p = nl ? nl + 1 : p + strlen(p); continue; }
@@ -510,9 +604,12 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
         }
         /* .method/.field bodies advance p themselves; rewinding would re-parse their annotations */
         int is_method = (strcmp(tok, ".method") == 0 || strcmp(tok, ".field") == 0);
-        free(tok);        if (!is_method) {
-            p = line_end;
+        if (!is_method) {
+            smali_fail_at(cur_line, "unknown directive '%s' at class level", tok);
+            free(tok); free(text_copy);
+            return -1;
         }
+        free(tok);
     }
     free(text_copy);
     return 0;
@@ -528,6 +625,8 @@ int parse_smali_file_path(smali_ctx_def_t *ctx, const char *filepath) {
     size_t read_bytes = fread(buf, 1, sz, fp);
     buf[read_bytes] = '\0';
     fclose(fp);
+    /* Diagnostics name the file they come from. */
+    smali_set_source_name(filepath);
     int ret = parse_smali_file_content(ctx, buf);
     free(buf);
     return ret;

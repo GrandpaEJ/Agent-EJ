@@ -480,6 +480,20 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
                 add_sig_types(&ctx->strings, m->signature);
                 add_shorty_string(&ctx->strings, m->signature);
 
+                /* The debug information refers to the parameter and local
+                 * names by their index in the string pool. */
+                for (uint32_t pi = 0; pi < m->param_name_count; pi++) {
+                    if (m->param_names[pi]) smali_pool_add(&ctx->strings, m->param_names[pi]);
+                }
+                for (uint32_t li = 0; li < m->local_count; li++) {
+                    if (m->local_names[li]) smali_pool_add(&ctx->strings, m->local_names[li]);
+                    if (m->local_types[li]) {
+                        smali_pool_add(&ctx->types, m->local_types[li]);
+                        smali_pool_add(&ctx->strings, m->local_types[li]);
+                    }
+                    if (m->local_sigs[li]) smali_pool_add(&ctx->strings, m->local_sigs[li]);
+                }
+
                 for (uint32_t c_idx = 0; c_idx < m->catches_count; c_idx++) {
                     if (m->catches[c_idx].type) {
                         smali_pool_add(&ctx->strings, m->catches[c_idx].type);

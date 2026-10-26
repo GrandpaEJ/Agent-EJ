@@ -157,11 +157,14 @@ static int parse_pkcs8_der(const uint8_t *der, size_t len, rsa_key *key) {
     key->bits = nlen * 8;
     idx += nlen;
 
-    // Skip e (INTEGER)
+    // Read e (INTEGER)
     if (idx >= rslen || rsa[idx] != 0x02) return -1;
     idx++;
     int elen = der_read_len(rsa, rslen, &idx);
-    if (elen < 0) return -1;
+    if (elen < 0 || elen > 8) return -1;
+    memset(key->e, 0, sizeof(key->e));
+    for (int i = 0; i < elen; i++)
+        key->e[(elen - 1 - i) / 4] |= (uint32_t)rsa[idx + i] << (((elen - 1 - i) % 4) * 8);
     idx += elen;
 
     // Read d (INTEGER)

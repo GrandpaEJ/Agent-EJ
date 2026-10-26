@@ -29,10 +29,10 @@ static int comp_ranges(const void *a, const void *b) {
     return (ra->end_addr < rb->end_addr) ? -1 : 1;
 }
 
-uint32_t write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_t *m) {
-    if (m->access_flags & 0x0500) return 0;
-    if (m->insns_count == 0 || m->insns_count > 65536) return 0;
-    if (!m->insns) { fprintf(stderr, "BUG: insns is NULL for method with insns_count=%u\n", m->insns_count); return 0; }
+int write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_t *m, uint32_t *out_offset) {
+    if (m->access_flags & 0x0500) { *out_offset = 0; return 0; }
+    if (m->insns_count == 0 || m->insns_count > 65536) { *out_offset = 0; return 0; }
+    if (!m->insns) { fprintf(stderr, "BUG: insns is NULL for method with insns_count=%u\n", m->insns_count); *out_offset = 0; return 0; }
     align_4(b);
     uint32_t offset = b->len;
 
@@ -46,7 +46,11 @@ uint32_t write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_
         }
     }
     uint16_t *code_buf = malloc(max_units * sizeof(uint16_t));
-    uint32_t code_words = smali_encode_method_insns(ctx, m, code_buf);
+    uint32_t code_words = 0;
+    if (smali_encode_method_insns(ctx, m, code_buf, &code_words) != 0) {
+        free(code_buf);
+        return -1;
+    }
 
     write_try_range_t *ranges = calloc(m->catches_count ? m->catches_count : 1, sizeof(write_try_range_t));
     uint32_t range_count = 0;
@@ -246,5 +250,6 @@ uint32_t write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_
     free(code_buf);
     free(ranges);
     align_4(b);
-    return offset;
+    *out_offset = offset;
+    return 0;
 }

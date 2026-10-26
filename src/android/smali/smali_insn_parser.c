@@ -1,20 +1,29 @@
 #include "smali_parser.h"
 #include "smali_lexer.h"
 #include "smali_optab.h"
+#include "smali_error.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
-int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **p) {
+int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **p, smali_line_t *file_lc) {
     (void)ctx;
     char *start = *p;
     int current_line = -1;  /* track current .line for next instruction */
+    /* Source line of the instruction being parsed. The body is counted from
+     * its own start so that a rewind inside the body stays cheap; when the
+     * body is done the file counter is moved to the end without rescanning. */
+    smali_line_t lc;
+    smali_line_init(&lc, start, file_lc->line);
     while (*start) {
         while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
         if (!*start) break;
         
         char *line_end = smali_eol(start);
         if (!line_end) line_end = start + strlen(start);
+
+        /* The token starts here, so this is its source line. */
+        smali_line_sync(&lc, start);
         
         if (*start == '#') {
             start = line_end;
@@ -32,6 +41,9 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
             if (next && strcmp(next, "method") == 0) {
                 free(next); free(tok);
                 *p = line_end;
+                /* The body has been counted; move the file counter to the end
+                 * of the method without scanning the body a second time. */
+                smali_line_jump(file_lc, *p, lc.line);
                 return 0;
             }
             if (next) free(next);
@@ -137,6 +149,17 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
             char *reg_tok = smali_next_token(&start);
             char *name_tok = smali_next_token(&start);
             char *type_tok = smali_next_token(&start);
+            /* ".local v0, "name": <type>" - the colon separates the name from
+             * the type. The lexer keeps a leading colon with its token, so
+             * the type is either glued to it or in the next token. */
+            if (type_tok && type_tok[0] == ':') {
+                if (type_tok[1] != '\0') {
+                    memmove(type_tok, type_tok + 1, strlen(type_tok));
+                } else {
+                    free(type_tok);
+                    type_tok = smali_next_token(&start);
+                }
+            }
             if (reg_tok && name_tok && type_tok) {
                 m->local_regs = realloc(m->local_regs, (m->local_count + 1) * sizeof(uint32_t));
                 m->local_names = realloc(m->local_names, (m->local_count + 1) * sizeof(char *));
@@ -145,10 +168,14 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                 m->local_regs[m->local_count] = smali_parse_register(reg_tok);
                 m->local_names[m->local_count] = strdup(name_tok);
                 m->local_types[m->local_count] = strdup(type_tok);
+                /* A signature is only present when it follows an '='. */
                 char *sig_tok = smali_next_token(&start);
                 if (sig_tok && strcmp(sig_tok, "=") == 0) {
                     free(sig_tok);
                     sig_tok = smali_next_token(&start);
+                } else {
+                    free(sig_tok);
+                    sig_tok = NULL;
                 }
                 m->local_sigs[m->local_count] = sig_tok ? strdup(sig_tok) : NULL;
                 if (sig_tok) free(sig_tok);
@@ -176,6 +203,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
             ins->fmt = 103; /* array-data payload */
             ins->payload_element_width = elem_width;
             ins->line_number = current_line;
+            ins->src_line = (int)lc.line;
             current_line = -1;
 
             /* collect values until .end array-data */
@@ -275,6 +303,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
             memset(ins, 0, sizeof(smali_insn_t));
             ins->fmt = is_packed ? 101 : 102;
             ins->line_number = current_line;
+            ins->src_line = (int)lc.line;
             current_line = -1;
             
             if (is_packed) {
@@ -382,6 +411,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                 ins->fmt = op->fmt;
                 ins->kind = op->kind;
                 ins->line_number = current_line;
+                ins->src_line = (int)lc.line;
                 current_line = -1;
                 
                 if (ins->fmt == 1 || ins->fmt == 21 || ins->fmt == 23 || ins->fmt == 24) {
@@ -519,6 +549,23 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                     ins->label_target = smali_next_token(&start);
                     if (vA_tok) free(vA_tok);
                 }
+            } else if (tok[0] == '.') {
+                /* A directive the parser does not know. ".restart local" is
+                 * emitted by baksmali and carries no data, so it is skipped;
+                 * anything else is a typo worth reporting. */
+                if (strcmp(tok, ".restart") != 0) {
+                    smali_fail_at(lc.line, "unknown directive '%s' in method %s%s",
+                                  tok, m->name ? m->name : "?",
+                                  m->signature ? m->signature : "");
+                    free(tok);
+                    return -1;
+                }
+            } else {
+                smali_fail_at(lc.line, "unknown instruction '%s' in method %s%s",
+                              tok, m->name ? m->name : "?",
+                              m->signature ? m->signature : "");
+                free(tok);
+                return -1;
             }
         }
         free(tok);

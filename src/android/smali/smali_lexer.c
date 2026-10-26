@@ -2,6 +2,20 @@
 #include <string.h>
 #include <stdlib.h>
 
+void smali_line_sync(smali_line_t *lc, const char *pos) {
+    if (pos >= lc->pos) {
+        for (const char *q = lc->pos; q < pos; q++)
+            if (*q == '\n') lc->line++;
+    } else {
+        /* The parser rewound: recount from the start of the region. */
+        uint32_t n = lc->base_line;
+        for (const char *q = lc->base; q < pos; q++)
+            if (*q == '\n') n++;
+        lc->line = n;
+    }
+    lc->pos = pos;
+}
+
 /* Appends one UTF-16 code unit as Modified UTF-8 (NUL -> C0 80, surrogates as 3 bytes). */
 static size_t put_mutf8(char *out, unsigned u) {
     if (u != 0 && u < 0x80) { out[0] = (char)u; return 1; }

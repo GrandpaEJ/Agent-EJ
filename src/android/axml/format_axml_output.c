@@ -134,7 +134,7 @@ static const char* fmt_flags(const char *an, int32_t val) {
     
     // Special case: gravity/layout_gravity use nibble-pair encoding
     if ((strcmp(an, "gravity") == 0 || strcmp(an, "layout_gravity") == 0)) {
-        uint8_t h = val & 0x0F, v = (val >> 4) & 0x0F;
+        uint8_t h = val & 0x0F, v = val & 0xF0;
         // Check for combined constants: center=0x11, fill=0x77
         if (val == 0x11) return "center";
         if (val == 0x77) return "fill";

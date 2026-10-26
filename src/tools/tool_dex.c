@@ -3,6 +3,7 @@
 #include "formats.h"
 #include "smali_parser.h"
 #include "smali_pool.h"
+#include "smali_error.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,7 +57,11 @@ char* execute_smali_assemble(cJSON* args) {
         cJSON_AddStringToObject(res, "output", out_dex_obj->valuestring);
         cJSON_AddNumberToObject(res, "dex_count", dex_count);
     } else {
-        cJSON_AddStringToObject(res, "error", "Assembly failed");
+        /* The assembler never aborts the process; the reason for the failure
+         * (invalid register, syntax error, ...) travels through
+         * smali_last_error() so the agent sees it in the JSON response. */
+        const char *err = smali_last_error();
+        cJSON_AddStringToObject(res, "error", (err && err[0]) ? err : "Assembly failed");
     }
     char *res_str = cJSON_PrintUnformatted(res);
     cJSON_Delete(res);

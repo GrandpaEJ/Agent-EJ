@@ -10,6 +10,38 @@ uint32_t smali_parse_register(const char *tok);
 /* Parses a literal: optional "#", "-", decimal/hex/octal, optional L/s/t suffix; wraps to 64 bits. */
 int64_t smali_parse_lit(const char *tok);
 
+/* Source line tracking.
+ *
+ * The parsers walk the source text with a moving pointer; this helper keeps
+ * the 1-based source line of that pointer up to date so diagnostics can point
+ * at the offending line. Counting is amortised O(text): the counter remembers
+ * the position it last counted up to and only scans the new part. */
+typedef struct {
+    const char *base;      /* start of the counted region */
+    uint32_t base_line;    /* source line of base */
+    uint32_t line;         /* source line of pos */
+    const char *pos;       /* last counted position */
+} smali_line_t;
+
+/* Starts counting at base, which is on source line line. */
+static inline void smali_line_init(smali_line_t *lc, const char *base, uint32_t line) {
+    lc->base = base;
+    lc->base_line = line;
+    lc->line = line;
+    lc->pos = base;
+}
+
+/* Updates lc->line to the source line of pos. pos must point into the region
+ * that starts at lc->base. */
+void smali_line_sync(smali_line_t *lc, const char *pos);
+
+/* Moves the counter to a position whose line is already known, without
+ * scanning the text in between. */
+static inline void smali_line_jump(smali_line_t *lc, const char *pos, uint32_t line) {
+    lc->pos = pos;
+    lc->line = line;
+}
+
 /* Finds the end of the current line without scanning the whole remaining buffer
  * (some libc strchr implementations measure the full string first, which is quadratic here). */
 static inline char *smali_eol(char *s) {

@@ -1,5 +1,7 @@
 #include "smali_encoder.h"
 #include "smali_pool.h"
+#include "smali_error.h"
+#include "smali_validate.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -53,7 +55,7 @@ void smali_compute_insn_offsets(smali_method_def_t *m, uint32_t *out) {
     out[m->insns_count] = cur_offset;
 }
 
-uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, uint16_t *out_buf) {
+int smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, uint16_t *out_buf, uint32_t *out_words) {
     uint32_t *insn_offsets = malloc((m->insns_count + 1) * sizeof(uint32_t));
     smali_compute_insn_offsets(m, insn_offsets);
 
@@ -182,13 +184,13 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
             if (ref_idx == 0xFFFFFFFF) {
                 /* An unresolvable reference ("??") must not silently become
                  * index 0, that would point the instruction at an unrelated
-                 * member. Report it and keep the instruction out. */
-                fprintf(stderr, "Error: unresolved %s reference '%s' in %s%s (line %d)\n",
+                 * member. Report it and abort the encoding. */
+                free(insn_offsets);
+                return smali_fail("unresolved %s reference '%s' in %s%s (line %d)",
                         ins->kind == 1 ? "string" : ins->kind == 2 ? "type" :
                         ins->kind == 3 ? "field" : "method",
                         ins->ref_str, m->name ? m->name : "?",
                         m->signature ? m->signature : "", ins->line_number);
-                exit(1);
             }
         }
 
@@ -196,29 +198,19 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
         uint32_t vB = resolve_register(ins->vB, m->registers_count, m->ins_count);
         uint32_t vC = resolve_register(ins->vC, m->registers_count, m->ins_count);
 
-        if (ins->fmt == 1 || ins->fmt == 21 || ins->fmt == 2 || ins->fmt == 8 || ins->fmt == 10 || ins->fmt == 22) {
-            if (vA > 15 || (ins->fmt != 2 && vB > 15)) {
-                fprintf(stderr, "Error: register limit exceeded (v%u or v%u > 15) in %s%s regs %u ins %u op 0x%02x fmt %d line %d\n", vA, vB, m->name ? m->name : "?", m->signature ? m->signature : "", m->registers_count, m->ins_count, ins->op, ins->fmt, ins->line_number);
-                exit(1);
-            }
+        /* F_35c keeps its argument registers in ins->regs[]; resolve them
+         * once so the validator and the encoder agree on the values. */
+        uint32_t invoke_regs[5];
+        if (ins->fmt == 14) {
+            for (int r = 0; r < 5; r++)
+                invoke_regs[r] = resolve_register(ins->regs[r], m->registers_count, m->ins_count);
         }
-        if (ins->fmt == 3 || ins->fmt == 7 || ins->fmt == 19 || ins->fmt == 25 || ins->fmt == 9 || ins->fmt == 11 || ins->fmt == 12 || ins->fmt == 13 || ins->fmt == 16 || ins->fmt == 18 || ins->fmt == 26 || ins->fmt == 23) {
-            if (vA > 255) {
-                fprintf(stderr, "Error: register limit exceeded (v%u > 255) at line %d\n", vA, ins->line_number);
-                exit(1);
-            }
-        }
-        if (ins->fmt == 12 || ins->fmt == 13) {
-            if (vB > 255) {
-                fprintf(stderr, "Error: register limit exceeded (v%u > 255) at line %d\n", vB, ins->line_number);
-                exit(1);
-            }
-        }
-        if (ins->fmt == 13) {
-            if (vC > 255) {
-                fprintf(stderr, "Error: register limit exceeded (v%u > 255) at line %d\n", vC, ins->line_number);
-                exit(1);
-            }
+
+        /* Register range check against the DEX bytecode format limits. */
+        if (smali_validate_insn(m, ins, vA, vB, vC,
+                                ins->fmt == 14 ? invoke_regs : NULL) != 0) {
+            free(insn_offsets);
+            return -1;
         }
 
         switch (ins->fmt) {
@@ -257,15 +249,11 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
             case 13: // F_23x
                 w0 = ins->op | (vA << 8); w1 = (vB) | (vC << 8); break;
             case 14: { // F_35c
-                uint32_t r0 = resolve_register(ins->regs[0], m->registers_count, m->ins_count);
-                uint32_t r1 = resolve_register(ins->regs[1], m->registers_count, m->ins_count);
-                uint32_t r2 = resolve_register(ins->regs[2], m->registers_count, m->ins_count);
-                uint32_t r3 = resolve_register(ins->regs[3], m->registers_count, m->ins_count);
-                uint32_t r4 = resolve_register(ins->regs[4], m->registers_count, m->ins_count);
-                if ((ins->vA > 0 && r0 > 15) || (ins->vA > 1 && r1 > 15) || (ins->vA > 2 && r2 > 15) || (ins->vA > 3 && r3 > 15) || (ins->vA > 4 && r4 > 15)) {
-                    fprintf(stderr, "Error: register limit exceeded (max v15) in invoke instruction at line %d\n", ins->line_number);
-                    exit(1);
-                }
+                uint32_t r0 = invoke_regs[0];
+                uint32_t r1 = invoke_regs[1];
+                uint32_t r2 = invoke_regs[2];
+                uint32_t r3 = invoke_regs[3];
+                uint32_t r4 = invoke_regs[4];
                 w0 = ins->op | (ins->vA << 12) | ((r4 & 0xF) << 8);
                 w1 = (uint16_t)ref_idx;
                 w2 = (r0 & 0xF) | ((r1 & 0xF) << 4) | ((r2 & 0xF) << 8) | ((r3 & 0xF) << 12);
@@ -299,5 +287,6 @@ uint32_t smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, 
         if (words > 4) out_buf[write_idx++] = w4;
     }
     free(insn_offsets);
-    return write_idx;
+    *out_words = write_idx;
+    return 0;
 }

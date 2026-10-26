@@ -260,11 +260,12 @@ int apk_build(const char *src_dir, const char *out_apk, const char *key_path, co
         // 1. Sign v1
         char tmp_signed1[1024];
         snprintf(tmp_signed1, sizeof(tmp_signed1), "%s.signed1.unaligned.zip", out_apk);
-        if (apk_sign_v1(tmp_unaligned, tmp_signed1, &key, 1, 1, custom_cert, custom_cert_len) != 0) {
+        int sign_ret = apk_sign_v1(tmp_unaligned, tmp_signed1, &key, 1, 1, custom_cert, custom_cert_len);
+        if (sign_ret != 0) {
             printf("apk_sign_v1 failed\n");
             remove(tmp_unaligned);
             if (custom_cert) free(custom_cert);
-            return -1;
+            return sign_ret; // preserve cert/key mismatch code for the caller
         }
         remove(tmp_unaligned);
 

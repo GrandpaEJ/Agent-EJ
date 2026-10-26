@@ -169,7 +169,18 @@ int main(int argc, char** argv) {
         char* result = tools_execute(argv[2], args);
         cJSON_Delete(args);
         printf("%s\n", result ? result : "null");
+        /* Direct tool execution reports failure through a numeric JSON
+         * "status" field (e.g. smali_assemble); surface it as the process
+         * exit code so shell callers can detect it. */
+        int rc = 0;
+        cJSON* parsed = result ? cJSON_Parse(result) : NULL;
+        if (parsed) {
+            cJSON* status = cJSON_GetObjectItem(parsed, "status");
+            if (cJSON_IsNumber(status) && cJSON_GetNumberValue(status) != 0) rc = 1;
+            cJSON_Delete(parsed);
+        }
         free(result);
+        return rc;
     } else if (strcmp(argv[1], "tools") == 0) {
         cJSON* defs = tools_get_definitions();
         if (defs) {
