@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "format_axml_xml_parser.h"
+#include "format_axml_enum.h"
 #include "axml_res_map.h"
 #include "formats.h"
 
@@ -215,9 +216,14 @@ static void parse_attr_value(str_builder *pool, const char *val, const char *ana
         if (strcmp(val, "vertical") == 0) { *out_type = 0x10; *out_data = 1; return; }
         if (strcmp(val, "horizontal") == 0) { *out_type = 0x10; *out_data = 0; return; }
     }
-    if (aname && strcmp(aname, "gravity") == 0) {
-        // TODO: parse gravity strings like "center_vertical" → 0x10 etc.
-        // For now, fall through to string/other handling
+    if (aname && (strcmp(aname, "gravity") == 0 || strcmp(aname, "layout_gravity") == 0)) {
+        uint32_t grav_val;
+        if (axml_parse_gravity(val, &grav_val)) {
+            *out_type = 0x10;
+            *out_data = grav_val;
+            return;
+        }
+        // Unrecognized gravity token: fall through to generic handling
     }
     if (strcmp(val, "true") == 0) {
         *out_type = 0x12;
