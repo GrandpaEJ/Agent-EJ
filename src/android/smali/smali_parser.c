@@ -22,7 +22,7 @@ void parse_annot_value(char **p, smali_annotation_elem_t *el) {
         while (**p) {
             while (**p == ' ' || **p == '\t' || **p == '\r' || **p == '\n' || **p == ',') (*p)++;
             if (**p == '}' || **p == 0) { if (**p == '}') (*p)++; break; }
-            if (**p == '#') { char *nl = strchr(*p, '\n'); *p = nl ? nl + 1 : *p + strlen(*p); continue; }
+            if (**p == '#') { char *nl = smali_eol(*p); *p = nl ? nl + 1 : *p + strlen(*p); continue; }
             if (el->array_count >= 256) {
                 while (**p && **p != '}') (*p)++;
                 if (**p == '}') (*p)++;
@@ -36,6 +36,19 @@ void parse_annot_value(char **p, smali_annotation_elem_t *el) {
             el->arr_tail = node;
             el->array_count++;
         }
+        return;
+    }
+    if (**p == '\'') {
+        char *q = *p + 1;
+        unsigned cv = (unsigned char)*q;
+        if (*q == '\\') {
+            q++;
+            if (*q == 'u') cv = (unsigned)strtoul(q + 1, &q, 16);
+            else { cv = *q == 'n' ? '\n' : *q == 't' ? '\t' : *q == 'r' ? '\r' : *q == 'b' ? '\b' : *q == 'f' ? '\f' : (unsigned char)*q; q++; }
+        } else q++;
+        if (*q == '\'') q++;
+        *p = q;
+        el->value_type = VALUE_TYPE_CHAR; el->value_int = cv;
         return;
     }
     char *tok = smali_next_token(p);
@@ -72,7 +85,7 @@ void parse_annot_value(char **p, smali_annotation_elem_t *el) {
         el->annot_elem_count = 0;
         while (**p) {
             while (**p == ' ' || **p == '\t' || **p == '\r' || **p == '\n') (*p)++;
-            if (**p == '#') { char *nl = strchr(*p, '\n'); *p = nl ? nl + 1 : *p + strlen(*p); continue; }
+            if (**p == '#') { char *nl = smali_eol(*p); *p = nl ? nl + 1 : *p + strlen(*p); continue; }
             char *et = smali_next_token(p);
             if (!et) break;
             if (strcmp(et, ".end") == 0) { char *sub = smali_next_token(p); if (sub) free(sub); free(et); break; }
@@ -93,8 +106,18 @@ void parse_annot_value(char **p, smali_annotation_elem_t *el) {
         }
         return;
     }
-el->value_type = VALUE_TYPE_INT;
-    el->value_int = strtoll(tok, NULL, 0);
+    size_t tl = strlen(tok);
+    if (strncmp(tok + (tok[0] == '-'), "0x", 2) != 0 && tl > 1 && (tok[tl - 1] == 'f' || tok[tl - 1] == 'd')) {
+        el->value_type = tok[tl - 1] == 'd' ? VALUE_TYPE_DOUBLE : VALUE_TYPE_FLOAT;
+        el->value_double = strtod(tok, NULL);
+    } else {
+        char *end = NULL;
+        el->value_int = (int64_t)smali_parse_lit(tok);
+        (void)end;
+        el->value_type = tok[tl - 1] == 'L' ? VALUE_TYPE_LONG
+                       : tok[tl - 1] == 's' ? VALUE_TYPE_SHORT
+                       : tok[tl - 1] == 't' ? VALUE_TYPE_BYTE : VALUE_TYPE_INT;
+    }
     free(tok);
 }
 
@@ -162,7 +185,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
         if (!*p) break;
 
         char *line_start = p;
-        char *line_end = strchr(p, '\n');
+        char *line_end = smali_eol(p);
         if (!line_end) line_end = p + strlen(p);
         
         if (*line_start == '#') {
@@ -175,6 +198,8 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
             p = line_end;
             continue;
         }
+        /* "tok" owns the dispatch token; branches that consume it set the
+         * pointer to NULL so that it is released exactly once. */
 
         if (strcmp(tok, ".class") == 0) {
             if (ctx->class_count >= ctx->class_cap) {
@@ -253,7 +278,20 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                         /* peek at raw source to detect quoted strings */
                         while (*p == ' ' || *p == '\t') p++;
                         int is_quoted = (*p == '"');
-                        char *val_tok = smali_next_token(&p);
+                        char *val_tok = NULL;
+                        if (*p == '\'') {
+                            /* char literal: 'a', '\\n', '\\u00e9' */
+                            char *q = p + 1;
+                            unsigned cv = (unsigned char)*q;
+                            if (*q == '\\') {
+                                q++;
+                                if (*q == 'u') { cv = (unsigned)strtoul(q + 1, &q, 16); }
+                                else { cv = *q == 'n' ? '\n' : *q == 't' ? '\t' : *q == 'r' ? '\r' : *q == 'b' ? '\b' : *q == 'f' ? '\f' : (unsigned char)*q; q++; }
+                            } else q++;
+                            if (*q == '\'') q++;
+                            p = q;
+                            val_type = VALUE_TYPE_CHAR; val_int = cv; has_init = 1;
+                        } else val_tok = smali_next_token(&p);
                         if (val_tok) {
                             if (strcmp(val_tok, "null") == 0) {
                                 val_type = VALUE_TYPE_NULL; free(val_tok);
@@ -272,8 +310,9 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                                 val_type = VALUE_TYPE_ENUM; free(val_tok);
                                 val_str = smali_next_token(&p);
                                 if (val_str) has_init = 1;
-                            } else if (strchr(val_tok, '.') && (strstr(val_tok, "f") || strstr(val_tok, "d"))) {
-                                if (strchr(val_tok, 'd')) {
+                            } else if (strncmp(val_tok + (val_tok[0] == '-'), "0x", 2) != 0 &&
+                                       (val_tok[strlen(val_tok) - 1] == 'f' || val_tok[strlen(val_tok) - 1] == 'd')) {
+                                if (val_tok[strlen(val_tok) - 1] == 'd') {
                                     val_type = VALUE_TYPE_DOUBLE;
                                 } else {
                                     val_type = VALUE_TYPE_FLOAT;
@@ -311,7 +350,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                         char *save_p = p;
                         while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
                         if (!*p) break;
-                        if (*p == '#') { char *nl = strchr(p, '\n'); p = nl ? nl + 1 : p + strlen(p); continue; }
+                        if (*p == '#') { char *nl = smali_eol(p); p = nl ? nl + 1 : p + strlen(p); continue; }
                         char *inner_tok = smali_next_token(&p);
                         if (!inner_tok) break;
                         if (strcmp(inner_tok, ".end") == 0) {
@@ -341,7 +380,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                                 if (!ann->type) ann->type = smali_next_token(&p);
                                 while (*p) {
                                     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-                                    if (*p == '#') { char *nl = strchr(p, '\n'); p = nl ? nl + 1 : p + strlen(p); continue; }
+                                    if (*p == '#') { char *nl = smali_eol(p); p = nl ? nl + 1 : p + strlen(p); continue; }
                                     char *elem_tok = smali_next_token(&p);
                                     if (!elem_tok) break;
                                     if (strcmp(elem_tok, ".end") == 0) { char *at = smali_next_token(&p); if (at) free(at); free(elem_tok); break; }
@@ -361,6 +400,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                                     }
                                 }
                                 free(inner_tok);
+                                free(tok);
                                 continue;
                         }
                         p = save_p;
@@ -446,7 +486,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                 if (!ann->type) ann->type = smali_next_token(&p);
                 while (*p) {
                     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-                    if (*p == '#') { char *nl = strchr(p, '\n'); p = nl ? nl + 1 : p + strlen(p); continue; }
+                    if (*p == '#') { char *nl = smali_eol(p); p = nl ? nl + 1 : p + strlen(p); continue; }
                     char *elem_tok = smali_next_token(&p);
                     if (!elem_tok) break;
                     if (strcmp(elem_tok, ".end") == 0) { char *at = smali_next_token(&p); if (at) free(at); free(elem_tok); break; }
@@ -465,11 +505,12 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                         free(elem_tok);
                     }
                 }
+            free(tok);
             continue;
         }
-        int is_method = (strcmp(tok, ".method") == 0);
-        free(tok);
-        if (!is_method) {
+        /* .method/.field bodies advance p themselves; rewinding would re-parse their annotations */
+        int is_method = (strcmp(tok, ".method") == 0 || strcmp(tok, ".field") == 0);
+        free(tok);        if (!is_method) {
             p = line_end;
         }
     }
