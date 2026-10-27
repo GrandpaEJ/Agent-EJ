@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the Agent X project will be documented in this file.
+All notable changes to the Agent EJ project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [Unreleased]
+
+### Changed
+- **The project is renamed from `Agent-X` to `Agent-EJ`.** The repository name and URL become `https://github.com/GrandpaEJ/Agent-EJ` (GitHub redirects the old URL), the built binary becomes `agent-ej` — with `agent-ej-nano`, `agent-ej-pico` and the `agent-ej.pid` / `agent-ej.log` runtime files — and every occurrence in the documentation, source comments and test-script defaults follows (`Agent X` in running prose becomes `Agent EJ`). No code behaviour changes: the full suite still reports 159 assertions across 7 tests and 39/39 smali fixtures. `.gitignore` keeps the legacy `agent-x` patterns alongside the new ones so a stale build of the old name can never be committed by accident.
 
 ---
 
@@ -223,7 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.1] - 2026-06-01
 
 ### Changed
-- Added strict memory-first coding guidelines and semantic version tracking rule definitions to [AGENT.md](file:///home/grandpa/me/code/zig/agent-x/AGENT.md).
+- Added strict memory-first coding guidelines and semantic version tracking rule definitions to [AGENT.md](file:///home/grandpa/me/code/zig/agent-ej/AGENT.md).
 
 ---
 
@@ -254,6 +257,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.0.0] - 2026-05-01
 
 ### Added
-- Initial release of Agent X (compiled rewrite in pure C11).
+- Initial release of Agent EJ (compiled rewrite in pure C11).
 - Free AI Backend Integration (no API key required).
 - Production Pro features: File-based keyword memory database (RAG), session isolation, dynamic context/token optimization, POSIX daemonization, and structured JSON logging.
