@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.8.4] - 2026-10-27
+
 ### Fixed
 - **The v1 (JAR) signature now uses the digest the platform's own signer would choose** (#30): the v1 path always signed with SHA-1, which modern JDKs disable — `jarsigner -verify` reported `The jar will be treated as unsigned` plus a `nonexistent signed entries` warning for every APK. The digest now follows apksigner's rule, probed against build-tools 35.0.0: `minSdkVersion >= 18` signs with SHA-256 (jarsigner verifies it with zero warnings), below that it stays SHA-1, because SHA-256 fails `apksigner verify` on API Level 15-17 while SHA-1 verifies at every level. The attribute names mirror apksigner's own (`SHA-256-Digest`, `SHA-256-Digest-Manifest`; jarsigner's `SHA-1-Digest` spelling is rejected by apksigner), and the PKCS#7 block follows the signature file: sha256(SF) signed with SHA256withRSA and digestAlgorithm OID 2.16.840.1.101.3.4.2.1 in both the SignedData set and the SignerInfo. An APK without an AndroidManifest.xml (a JAR-like input) gets SHA-256; an unreadable manifest or a missing uses-sdk falls back to SHA-1, which installs on every Android release. The digest choice matches apksigner's own on every probed fixture (minSdk 15, 17, 18, 24, none).
 - **META-INF content files survive v1 signing** (#30): the signer skipped every `META-INF/` entry, so the content files of a real APK (androidx `.version` files, `services/`, build metadata — 71 files in the test APK) were silently dropped from the signed output and never digest-listed. Both reference signers keep and sign them. The skip list now mirrors JDK `SignatureFileVerifier.isSigningRelated()`: only the signature files themselves (MANIFEST.MF, the .SF/.DSA/.RSA/.EC blocks and SIG-* legacy blocks directly under META-INF/) are replaced, in the manifest and in the copy loop alike.
