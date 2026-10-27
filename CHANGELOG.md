@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The decoded `res/values` tree is compiled back into `resources.arsc`** — an edit made after `decode_apk` now reaches the rebuilt APK. `decode_apk` turned every resource value into a `res/values` XML file, but `build_apk` packed whatever `resources.arsc` was on disk, so those files were documentation only: change a string, rebuild, and the APK still had the old value. The new `arsc_compile_xml()` walks the values directories, patches the matching entries of the original table and re-encodes it, and `build_apk` runs it ahead of the pack step (`apk_recompile_resources()`); a table it cannot compile is left in place rather than failing the build.
+- **`arsc_compile` tool** — `arsc=<table> res_dir=<res> out=<table>` compiles a decoded tree without a build, reporting how many values changed and how many were left alone.
+
+### Fixed
+- **Resource values are never silently dropped or corrupted while recompiling.** Entries are patched in place and an entry whose value already equals what the text says is not touched at all, so decoding and recompiling an untouched tree reproduces the original table **byte for byte** — verified on 16 real APKs. Configuration resolution shares `apk_build_config_str()` with the decoder, so a value in `values-land` reaches the land entry and leaves the default one alone; the entry's own data type decides how its text is read, so a number-shaped string such as `gcm_defaultSenderId` stays a string instead of becoming an integer, colours keep their own type, and values with no text form (dimensions, fractions, dynamic references) are skipped rather than rewritten. Duplicate keys are matched in entry order — one test APK gives every entry of a type the same name, and mapping them all onto the first would have overwritten six of them.
+
 ---
 
 ## [0.8.4] - 2026-10-27
