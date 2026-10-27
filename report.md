@@ -1,35 +1,35 @@
-# Agent-X vs Apktool — Feature Comparison
+# Agent-EJ vs Apktool — Feature Comparison
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
-| **Language** | Java (JAR) | C11 (native binary) | Agent-X: no JVM required, ~167KB binary |
-| **Platform** | Linux/Mac/Win (Java) | Linux (static musl) | Agent-X: single binary, no deps |
+| **Language** | Java (JAR) | C11 (native binary) | Agent-EJ: no JVM required, ~167KB binary |
+| **Platform** | Linux/Mac/Win (Java) | Linux (static musl) | Agent-EJ: single binary, no deps |
 
 ## Core Commands
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
-| CLI interface | `apktool d/b/if` | `agent-x tool decode_apk/build_apk` | Both support direct tool execution |
-| Decode APK | `apktool d app.apk` | `agent-x tool decode_apk` | ✅ Both |
-| Build APK | `apktool b dir/` | `agent-x tool build_apk` | ✅ Both |
-| Framework management | `if`/`cf`/`lf` | ❌ Not supported | Agent-X doesn't manage framework APKs |
-| Interactive mode | ❌ | ✅ `agent-x cli` | Full AI agent with memory, tools, Telegram |
-| Telegram bot | ❌ | ✅ `agent-x telegram` | Built-in long-polling daemon |
+| CLI interface | `apktool d/b/if` | `agent-ej tool decode_apk/build_apk` | Both support direct tool execution |
+| Decode APK | `apktool d app.apk` | `agent-ej tool decode_apk` | ✅ Both |
+| Build APK | `apktool b dir/` | `agent-ej tool build_apk` | ✅ Both |
+| Framework management | `if`/`cf`/`lf` | ❌ Not supported | Agent-EJ doesn't manage framework APKs |
+| Interactive mode | ❌ | ✅ `agent-ej cli` | Full AI agent with memory, tools, Telegram |
+| Telegram bot | ❌ | ✅ `agent-ej telegram` | Built-in long-polling daemon |
 | Daemon mode | ❌ | ✅ `--daemon` flag | Double-fork background operation |
 
 ## Decode/Disassemble
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
-| AndroidManifest.xml → text | ✅ | ✅ | Agent-X resolves `@type/key` refs via ARSC |
+| AndroidManifest.xml → text | ✅ | ✅ | Agent-EJ resolves `@type/key` refs via ARSC |
 | resources.arsc → res/values/*.xml | ✅ | ✅ | Both: strings, bools, colors, ids, styles |
 | Config-qualifier directories | ✅ | ✅ | `values-v21/`, `drawable-xhdpi-v4/`, `-night-*` |
 | DEX → Smali | ✅ (baksmali) | ✅ (native) | Both 113/113 instruction coverage |
-| 9-patch images (npTc → .9.png) | ✅ | ❌ | Agent-X doesn't decode 9-patch |
+| 9-patch images (npTc → .9.png) | ✅ | ❌ | Agent-EJ doesn't decode 9-patch |
 | Assets extraction | ✅ | ✅ | Copied verbatim |
 | Native libraries (`lib/`) | ✅ | ✅ | Copied verbatim |
 | Original files preserved | `original/` | `original/` | ✅ Both |
-| apktool.yml metadata | ✅ | ❌ | Agent-X doesn't generate metadata YAML |
+| apktool.yml metadata | ✅ | ❌ | Agent-EJ doesn't generate metadata YAML |
 | `--no-src` (skip DEX) | ✅ | ❌ | No CLI flag; always disassembles |
 | `--no-res` (skip resources) | ✅ | ❌ | No CLI flag; always decodes |
 | `--only-manifest` | ✅ | ❌ | No CLI flag; always decodes all |
@@ -41,30 +41,30 @@
 
 ## Build/Assemble
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
 | Smali → DEX | ✅ (smali.jar) | ✅ (native) | Both produce valid DEX |
-| XML → binary AXML | ✅ (aapt2) | ✅ (native) | Agent-X: uses `axml_assemble` |
-| resources.arsc build | ✅ (aapt2) | ❌ | Agent-X keeps original `resources.arsc` |
+| XML → binary AXML | ✅ (aapt2) | ✅ (native) | Agent-EJ: uses `axml_assemble` |
+| resources.arsc build | ✅ (aapt2) | ❌ | Agent-EJ keeps original `resources.arsc` |
 | 9-patch encode | ✅ (aapt2) | ❌ | Not supported |
-| ZIP archive creation | ✅ | ✅ | Agent-X: `repack_apk` + zipalign |
-| APK signing | ✅ (apksigner) | ✅ (native v1/v2/v3) | Agent-X v3 has verification issue #13 |
+| ZIP archive creation | ✅ | ✅ | Agent-EJ: `repack_apk` + zipalign |
+| APK signing | ✅ (apksigner) | ✅ (native v1/v2/v3) | Agent-EJ v3 has verification issue #13 |
 | Zipalign | ✅ | ✅ | 4-byte alignment |
 | `--aapt` custom path | ✅ | ❌ | No external tool support |
-| `--copy-original` | ✅ | ❌ | Agent-X always builds fresh |
-| `--debuggable` injection | ✅ | ❌ | Agent-X doesn't modify manifest |
-| `--no-crunch` | ✅ | ❌ | Agent-X doesn't crunch PNGs |
+| `--copy-original` | ✅ | ❌ | Agent-EJ always builds fresh |
+| `--debuggable` injection | ✅ | ❌ | Agent-EJ doesn't modify manifest |
+| `--no-crunch` | ✅ | ❌ | Agent-EJ doesn't crunch PNGs |
 | `--net-sec-conf` | ✅ | ❌ | No network config injection |
 
 ## Binary Format Support
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
-| ZIP read/write | ✅ | ✅ | Agent-X: mmap-based, zero-copy |
+| ZIP read/write | ✅ | ✅ | Agent-EJ: mmap-based, zero-copy |
 | AXML parse | ✅ | ✅ | Full chunk tree |
 | AXML encode (round-trip) | ✅ | ✅ | With ARSC reverse lookup |
 | resources.arsc parse | ✅ | ✅ | Full package/type/entry/config/attr bags |
-| resources.arsc encode | ✅ (aapt2) | ❌ (#5) | Agent-X: TOML round-trip only |
+| resources.arsc encode | ✅ (aapt2) | ❌ (#5) | Agent-EJ: TOML round-trip only |
 | DEX parse/disassemble | ✅ | ✅ | 113/113 opcodes |
 | DEX assemble (Smali→DEX) | ✅ | ✅ | With annotations, debug info gaps |
 | 9-patch | ✅ | ❌ | Not implemented |
@@ -73,20 +73,20 @@
 
 ## Resource Resolution
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
 | `@ref/0x...` → `@type/key` | ✅ | ✅ | Via ARSC lookup |
 | `?ref/0x...` → `?attr/name` | ✅ | ✅ | Via ARSC reverse lookup |
 | Enum values (orientation=1→vertical) | ✅ | ✅ | Hardcoded + dynamic ARSC attr bags |
 | Flag decomposition (configChanges=0xda0→...) | ✅ | ✅ | Bitwise + gravity nibble-pair |
-| Framework attr resolution | ✅ (via 1.apk) | ✅ (hardcoded table) | Apktool uses installed framework; Agent-X uses built-in table |
+| Framework attr resolution | ✅ (via 1.apk) | ✅ (hardcoded table) | Apktool uses installed framework; Agent-EJ uses built-in table |
 | App-defined custom attrs | ✅ (via ARSC) | ✅ (via ARSC attr bags) | Both parse ResTable_map entries |
 | `public.xml` generation | ✅ | ✅ | Full resource ID mapping |
 | Styled strings (spans) | ✅ | ❌ | Not parsed |
 
 ## Framework Management
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
 | Install framework APK | ✅ | ❌ | Not supported |
 | List frameworks | ✅ | ❌ | Not supported |
@@ -96,7 +96,7 @@
 
 ## Smali Assembler Gaps
 
-| Feature | Apktool (smali.jar) | Agent-X | Notes |
+| Feature | Apktool (smali.jar) | Agent-EJ | Notes |
 |---------|---------------------|---------|-------|
 | Annotation writing | ✅ | ❌ (Phase 2) | Class/field/method/param annotations |
 | Debug info writing | ✅ | ❌ (Phase 3) | `.line`, `.locals`, `.prologue`, `.epilogue` |
@@ -108,7 +108,7 @@
 
 ## AI/Agent Features
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
 | AI agent | ❌ | ✅ | OpenAI-compatible LLM integration |
 | Tool-calling loop | ❌ | ✅ | Single tool per turn, feeds back to LLM |
@@ -121,7 +121,7 @@
 
 ## Security
 
-| Feature | Apktool | Agent-X | Notes |
+| Feature | Apktool | Agent-EJ | Notes |
 |---------|---------|---------|-------|
 | Path validation in resources | ✅ | ❌ | CVE fix for malicious resource names |
 | SAFE_MODE prompting | ❌ | ✅ | Prompts before dangerous operations |
@@ -131,7 +131,7 @@
 
 ## Summary
 
-| Category | Apktool | Agent-X | Winner |
+| Category | Apktool | Agent-EJ | Winner |
 |----------|---------|---------|--------|
 | Core APK decode/rebuild | ✅ Full | ✅ Full (w/ gaps) | Apktool (mature) |
 | Resource XML generation | ✅ Complete | ✅ Complete | Tie |
@@ -140,8 +140,8 @@
 | resources.arsc encode | ✅ (aapt2) | ❌ (#5) | Apktool |
 | 9-patch support | ✅ | ❌ | Apktool |
 | Framework management | ✅ Complete | ❌ | Apktool |
-| Binary size | ~15MB (JAR+JRE) | ~167KB | **Agent-X** |
-| No dependencies | ❌ (needs Java) | ✅ (static binary) | **Agent-X** |
-| AI agent + tool ecosystem | ❌ | ✅ | **Agent-X** |
-| ADB protocol (no adb binary) | ❌ | ✅ | **Agent-X** |
+| Binary size | ~15MB (JAR+JRE) | ~167KB | **Agent-EJ** |
+| No dependencies | ❌ (needs Java) | ✅ (static binary) | **Agent-EJ** |
+| AI agent + tool ecosystem | ❌ | ✅ | **Agent-EJ** |
+| ADB protocol (no adb binary) | ❌ | ✅ | **Agent-EJ** |
 | Multiple signing schemes | ✅ (apksigner) | ✅ (native) | Tie (v3 bug) |

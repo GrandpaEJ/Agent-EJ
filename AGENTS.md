@@ -1,6 +1,6 @@
-# Agent X — Architecture & Refactoring Manifest
+# Agent EJ — Architecture & Refactoring Manifest
 
-Agent X is designed to be an ultra-lightweight, zero-dependency, and extremely fast AI autonomous agent. To scale its features (such as custom binary parsing and APKTool capabilities) without bloat, it must adhere to a strict modular design. 
+Agent EJ is designed to be an ultra-lightweight, zero-dependency, and extremely fast AI autonomous agent. To scale its features (such as custom binary parsing and APKTool capabilities) without bloat, it must adhere to a strict modular design. 
 
 This manifest outlines the refactoring guidelines to split the code into small, feature-wise, reusable, size-optimized, and low-RAM-consuming components.
 
@@ -11,7 +11,7 @@ This manifest outlines the refactoring guidelines to split the code into small, 
 The codebase must be reorganized into modular feature directories under `src/` and `include/`. No monolithic files are allowed.
 
 ```
-agent-x/
+agent-ej/
 ├── include/                 # Header declarations
 │   ├── core.h               # Core agent loop, structures, and config
 │   ├── net.h                # HTTP client and Telegram bot
@@ -145,7 +145,7 @@ Every single code change, refactoring step, or feature implementation **must foc
 
 ### 6.2. Git & Semantic Versioning Rules
 * **Track with Git**: All changes must be cleanly staged and committed to git.
-* **Changelog Updates**: Every release and major update must be documented in [CHANGELOG.md](file:///home/grandpa/me/code/zig/agent-x/CHANGELOG.md) following Keep a Changelog standards.
+* **Changelog Updates**: Every release and major update must be documented in [CHANGELOG.md](file:///home/grandpa/me/code/zig/agent-ej/CHANGELOG.md) following Keep a Changelog standards.
 * **Semantic Versioning**: Adhere strictly to the following versioning format:
   * **1.x.x** : [Lts] (Long Term Support / Major Architectural Updates)
   * **x.n.x** : [new feat] (New features and backward-compatible additions)
@@ -242,7 +242,7 @@ The assembler exists at `src/android/smali/` (~2,850 LOC) with a working pipelin
 
 - Test DEX: `apk/classes.dex` (113 classes from TopActivity app)
 - Reference: `java -jar apk/baksmali.jar d classes.dex -o /tmp/ref`
-- Assemble: `./agent-x tool smali_assemble src_dir=/tmp/ref out_dex=/tmp/out.dex`
+- Assemble: `./agent-ej tool smali_assemble src_dir=/tmp/ref out_dex=/tmp/out.dex`
 - Verify: `java -jar apk/smali.jar a /tmp/ref -o /tmp/smali_out.dex && diff classes.dex /tmp/smali_out.dex`
 - Round-trip: disassemble→assemble→disassemble should be stable
 

@@ -1,13 +1,13 @@
-# Agent-X Native APK Signer
+# Agent-EJ Native APK Signer
 
 ## Introduction
-Agent-X includes an ultra-fast, zero-dependency, native C11 implementation of Android's APK Signature Schemes (v1, v2, and v3). This means you do not need Java, `apksigner`, `jarsigner`, or `OpenSSL` installed on the host system to sign or resign APKs.
+Agent-EJ includes an ultra-fast, zero-dependency, native C11 implementation of Android's APK Signature Schemes (v1, v2, and v3). This means you do not need Java, `apksigner`, `jarsigner`, or `OpenSSL` installed on the host system to sign or resign APKs.
 
 ## Basic Usage
 ### Default Signing
-If no custom key is provided, Agent-X signs the APK using its built-in static test key (`CN=GrandpaEJ`).
+If no custom key is provided, Agent-EJ signs the APK using its built-in static test key (`CN=GrandpaEJ`).
 ```bash
-./agent-x tool resign_apk path=app.apk
+./agent-ej tool resign_apk path=app.apk
 ```
 This will generate `app.apk.signed` in the same directory using the default `v1` scheme.
 
@@ -15,14 +15,14 @@ This will generate `app.apk.signed` in the same directory using the default `v1`
 You can specify which signature schemes to use by passing the `scheme` parameter. Multiple schemes can be chained together:
 ```bash
 # Sign using only V2
-./agent-x tool resign_apk path=app.apk scheme=v2
+./agent-ej tool resign_apk path=app.apk scheme=v2
 
 # Sign using V1, V2, and V3 (Recommended for maximum compatibility)
-./agent-x tool resign_apk path=app.apk scheme=v1,v2,v3
+./agent-ej tool resign_apk path=app.apk scheme=v1,v2,v3
 ```
 
 ## Custom Keys (Dynamic Signing)
-Agent-X allows you to dynamically load your own private key and certificate without recompiling the binary.
+Agent-EJ allows you to dynamically load your own private key and certificate without recompiling the binary.
 *(Note: Custom keys currently only support **V2 and V3** schemes. If you provide a custom key, V1 will be disabled automatically because dynamically generating a full PKCS#7 block in pure C requires a complex ASN.1 compiler).*
 
 ### 1. Prepare your keys
@@ -42,7 +42,7 @@ openssl x509 -in mycert.pem -out mycert.der -outform DER
 ### 2. Sign the APK
 Pass the paths to your custom key and certificate:
 ```bash
-./agent-x tool resign_apk path=app.apk scheme=v2,v3 key=mykey.pem cert=mycert.der
+./agent-ej tool resign_apk path=app.apk scheme=v2,v3 key=mykey.pem cert=mycert.der
 ```
 
 ---
@@ -50,7 +50,7 @@ Pass the paths to your custom key and certificate:
 ## Advanced Architecture & Implementation Details
 
 ### Zero-Dependency Design
-To adhere to the Agent-X modular architecture, the signer does **not** link against OpenSSL, BouncyCastle, or any external ASN.1 parsing libraries.
+To adhere to the Agent-EJ modular architecture, the signer does **not** link against OpenSSL, BouncyCastle, or any external ASN.1 parsing libraries.
 - **Hashes**: Uses native, memory-optimized SHA-1 and SHA-256 implementations.
 - **RSA**: Uses a lightweight native RSA signing implementation.
 - **Memory Optimization**: Uses POSIX `mmap` for reading the APK chunks. This bypasses heap allocations and ensures the RAM footprint remains under 500 KB even when hashing a 2GB APK!
@@ -66,10 +66,10 @@ V1 signing modifies the ZIP structure by adding a `META-INF` directory containin
 ### Schemes V2 and V3 (APK Signature Block)
 Unlike V1, V2 and V3 do not modify the ZIP entries. Instead, they insert an opaque binary block (the **APK Signing Block**) right before the ZIP Central Directory.
 
-Agent-X builds this block manually through memory chunking:
+Agent-EJ builds this block manually through memory chunking:
 1. **Chunk Hashing**: The APK is divided into 1MB chunks. Each chunk is prepended with `0xa5` and hashed via SHA-256.
 2. **Top-Level Hash**: All chunk hashes are combined, prepended with `0x5a`, and hashed again to form the final APK digest.
-3. **Dynamic Public Key Extraction**: When a custom `.der` certificate is loaded, Agent-X natively scans the raw bytes to find the `rsaEncryption` OID (`1.2.840.113549.1.1.1`). It then backtracks to extract the exact `SubjectPublicKeyInfo` sequence required for the V2/V3 payload without needing a full X.509 parser! This avoids megabytes of library bloat.
+3. **Dynamic Public Key Extraction**: When a custom `.der` certificate is loaded, Agent-EJ natively scans the raw bytes to find the `rsaEncryption` OID (`1.2.840.113549.1.1.1`). It then backtracks to extract the exact `SubjectPublicKeyInfo` sequence required for the V2/V3 payload without needing a full X.509 parser! This avoids megabytes of library bloat.
 4. **V3 Min/Max SDK**: The V3 signer block natively hardcodes `minSdk=24` and `maxSdk=0x7FFFFFFF`, maintaining 100% byte-compatibility with Google's official `apksigner`.
 
 ### File Structure Map

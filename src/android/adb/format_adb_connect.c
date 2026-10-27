@@ -123,7 +123,7 @@ int adb_connect(adb_conn *conn) {
         if (ok[0] != 'O' || ok[1] != 'K') { close(conn->fd); conn->fd = -1; return -1; }
     }
 
-    char system_type[64] = "agent-x::";
+    char system_type[64] = "agent-ej::";
     if (write_msg(conn->fd, A_CNXN, ADB_VERSION, MAX_PAYLOAD,
                   system_type, strlen(system_type) + 1))
         { close(conn->fd); conn->fd = -1; return -1; }

@@ -2,7 +2,7 @@
 
 Android Binary XML (AXML) is the format Android uses to store compiled XML files inside an APK (like `AndroidManifest.xml` or layout files in `res/layout/`). It is a highly optimized, binary representation of an XML document.
 
-This document covers how AXML works from a basic concept to advanced internal mechanics, and explains how `Agent-X` implements its zero-dependency AXML Encoder.
+This document covers how AXML works from a basic concept to advanced internal mechanics, and explains how `Agent-EJ` implements its zero-dependency AXML Encoder.
 
 ---
 
@@ -79,9 +79,9 @@ If an attribute lacks a Resource ID (like `package` or `xmlns`), its Resource ID
 
 ---
 
-## 5. Agent-X Implementation Strategy
+## 5. Agent-EJ Implementation Strategy
 
-Agent-X implements a blazing-fast, zero-dependency AXML Encoder in C11 (`src/android/axml/format_axml_encode.c`) that perfectly mirrors AAPT.
+Agent-EJ implements a blazing-fast, zero-dependency AXML Encoder in C11 (`src/android/axml/format_axml_encode.c`) that perfectly mirrors AAPT.
 
 ### The Pipeline
 1. **Plaintext Parsing (`format_axml_xml_parser.c`)**:

@@ -42,7 +42,7 @@ static cJSON* get_session_history(int chat_id) {
     
     cJSON* sys_msg = cJSON_CreateObject();
     cJSON_AddStringToObject(sys_msg, "role", "system");
-    cJSON_AddStringToObject(sys_msg, "content", "You are Agent X, a helpful AI assistant with system access. Keep answers concise.");
+    cJSON_AddStringToObject(sys_msg, "content", "You are Agent EJ, a helpful AI assistant with system access. Keep answers concise.");
     cJSON_AddItemToArray(s.history, sys_msg);
     
     if (chat_id != 0) {
@@ -265,11 +265,11 @@ char* agent_send_message(const char* user_text, int chat_id) {
             char sys_content[2048];
             if (memories && strlen(memories) > 0) {
                 snprintf(sys_content, sizeof(sys_content), 
-                    "You are Agent X, a helpful AI assistant with system access. Keep answers concise. "
+                    "You are Agent EJ, a helpful AI assistant with system access. Keep answers concise. "
                     "Relevant recalled memories: %s", memories);
             } else {
                 snprintf(sys_content, sizeof(sys_content), 
-                    "You are Agent X, a helpful AI assistant with system access. Keep answers concise.");
+                    "You are Agent EJ, a helpful AI assistant with system access. Keep answers concise.");
             }
             cJSON_ReplaceItemInObject(sys_msg, "content", cJSON_CreateString(sys_content));
         }

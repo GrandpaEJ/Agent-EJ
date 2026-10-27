@@ -1,6 +1,6 @@
 # ARSC Engine Internals (resources.arsc)
 
-*Note: This feature is currently in Phase 6 of the Agent-X implementation plan.*
+*Note: This feature is currently in Phase 6 of the Agent-EJ implementation plan.*
 
 The `resources.arsc` file is the compiled binary representation of an Android app's resources (strings, styles, layouts, dimensions, and colors). Unlike the DEX or AXML formats, ARSC files are massive nested tables of chunks.
 
@@ -22,7 +22,7 @@ The binary format is defined by a series of chunks, where each chunk has a stand
 
 ## 2. Planned Implementation
 
-To maintain Agent-X's strict `< 250 LOC` rule and ultra-low RAM footprint, the ARSC module will be implemented using the same **Zero-Copy Iteration** technique used in the DEX disassembler.
+To maintain Agent-EJ's strict `< 250 LOC` rule and ultra-low RAM footprint, the ARSC module will be implemented using the same **Zero-Copy Iteration** technique used in the DEX disassembler.
 
 ### Parsing (`format_arsc_parse.c`)
 *   The `resources.arsc` file will be `mmap`'d into memory.

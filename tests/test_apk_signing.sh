@@ -11,13 +11,13 @@
 # skipped (the negative case is still checked) and the test reports SKIP
 # instead of failing.
 #
-# Usage: tests/test_apk_signing.sh [path-to-agent-x]
+# Usage: tests/test_apk_signing.sh [path-to-agent-ej]
 
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AGENTX="${1:-$ROOT/agent-x}"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/agent-x-signtest.XXXXXX")"
+AGENTX="${1:-$ROOT/agent-ej}"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/agent-ej-signtest.XXXXXX")"
 if [ -n "${APKSIGNER:-}" ]; then
     # Explicitly requested: honour it, otherwise there is no oracle available.
     [ -x "$APKSIGNER" ] || APKSIGNER=""
@@ -45,7 +45,7 @@ trap cleanup EXIT
 printf '== APK signing test (issue #13) ==\n'
 
 if [ ! -x "$AGENTX" ]; then
-    printf 'agent-x binary not found at %s - run "make release" first\n' "$AGENTX" >&2
+    printf 'agent-ej binary not found at %s - run "make release" first\n' "$AGENTX" >&2
     exit 2
 fi
 
@@ -55,26 +55,26 @@ openssl genrsa -traditional -out "$WORK/key.pem" 2048 >/dev/null 2>&1 || {
     printf 'openssl genrsa failed\n' >&2; exit 2; }
 openssl pkcs8 -topk8 -nocrypt -in "$WORK/key.pem" -out "$WORK/key_p8.pem" >/dev/null 2>&1 || {
     printf 'openssl pkcs8 failed\n' >&2; exit 2; }
-openssl req -new -x509 -key "$WORK/key.pem" -subj "/CN=Agent-X Test" \
+openssl req -new -x509 -key "$WORK/key.pem" -subj "/CN=Agent-EJ Test" \
     -days 3650 -outform DER -out "$WORK/cert.der" >/dev/null 2>&1 || {
     printf 'openssl req failed\n' >&2; exit 2; }
 
 # A second, unrelated key pair: its certificate must be rejected.
 openssl genrsa -traditional -out "$WORK/other.pem" 2048 >/dev/null 2>&1
 openssl pkcs8 -topk8 -nocrypt -in "$WORK/other.pem" -out "$WORK/other_p8.pem" >/dev/null 2>&1
-openssl req -new -x509 -key "$WORK/other.pem" -subj "/CN=Agent-X Other" \
+openssl req -new -x509 -key "$WORK/other.pem" -subj "/CN=Agent-EJ Other" \
     -days 3650 -outform DER -out "$WORK/other.der" >/dev/null 2>&1
 
 # --- a tiny synthetic APK ---------------------------------------------------
 # apksigner needs a real AndroidManifest.xml inside the APK, otherwise it
 # aborts with "Missing AndroidManifest.xml".  The manifest is produced by the
-# agent-x AXML encoder; minSdk 24 keeps apksigner from demanding a v1 (JAR)
+# agent-ej AXML encoder; minSdk 24 keeps apksigner from demanding a v1 (JAR)
 # signature, so the v2/v3 result is unambiguous.
 cat > "$WORK/manifest.xml" <<'XML'
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.agentx.test">
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
-    <application android:label="Agent-X Test" />
+    <application android:label="Agent-EJ Test" />
 </manifest>
 XML
 if ! "$AGENTX" tool axml_assemble src="$WORK/manifest.xml" out="$WORK/AndroidManifest.xml" >/dev/null 2>&1; then
@@ -85,7 +85,7 @@ fi
 build_apk() {
     out="$1"
     rm -rf "$WORK/apk"; mkdir -p "$WORK/apk"
-    printf 'hello agent-x\n' > "$WORK/apk/hello.txt"
+    printf 'hello agent-ej\n' > "$WORK/apk/hello.txt"
     cp "$WORK/AndroidManifest.xml" "$WORK/apk/AndroidManifest.xml"
     rm -f "$WORK/base.zip"
     ( cd "$WORK/apk" && zip -q -X "$WORK/base.zip" hello.txt AndroidManifest.xml )

@@ -1,33 +1,33 @@
-# Agent X CLI Tools
+# Agent EJ CLI Tools
 
-Agent X provides ADB and APK tooling accessible **without the AI agent** via direct CLI commands.
+Agent EJ provides ADB and APK tooling accessible **without the AI agent** via direct CLI commands.
 
 ```
-./agent-x tool <name> [key=val ...]
+./agent-ej tool <name> [key=val ...]
 ```
 
-Use `./agent-x tools` to list all available tools.
+Use `./agent-ej tools` to list all available tools.
 
 ## Quick Start
 
 ```bash
 # List connected devices
-./agent-x tool adb_devices
+./agent-ej tool adb_devices
 
 # Install an APK
-./agent-x tool adb_install apk_path=/path/to/app.apk
+./agent-ej tool adb_install apk_path=/path/to/app.apk
 
 # Run a shell command on device
-./agent-x tool adb_shell command="pm list packages"
+./agent-ej tool adb_shell command="pm list packages"
 
 # Push a file to device
-./agent-x tool adb_push local=./file.txt remote=/data/local/tmp/file.txt
+./agent-ej tool adb_push local=./file.txt remote=/data/local/tmp/file.txt
 
 # Pull a file from device
-./agent-x tool adb_pull remote=/data/local/tmp/file.txt local=./file.txt
+./agent-ej tool adb_pull remote=/data/local/tmp/file.txt local=./file.txt
 
 # Uninstall a package
-./agent-x tool adb_uninstall package=com.example.app
+./agent-ej tool adb_uninstall package=com.example.app
 ```
 
 ## ADB Requirements
@@ -40,24 +40,24 @@ Use `./agent-x tools` to list all available tools.
 
 ```bash
 # Align a ZIP for APK use
-./agent-x tool re_zipalign in=unaligned.apk out=aligned.apk
+./agent-ej tool re_zipalign in=unaligned.apk out=aligned.apk
 
 # Sign an APK
-./agent-x tool re_sign_apk apk=unsigned.apk
+./agent-ej tool re_sign_apk apk=unsigned.apk
 
 # Extract all entries from APK
-./agent-x tool re_extract_apk apk=input.apk out=/tmp/extracted
+./agent-ej tool re_extract_apk apk=input.apk out=/tmp/extracted
 
 # Search strings in binary files
-./agent-x tool re_search_strings file=classes.dex pattern=api
+./agent-ej tool re_search_strings file=classes.dex pattern=api
 ```
 
 ## AI Agent Mode
 
 ```bash
 # Interactive CLI with AI
-./agent-x cli
+./agent-ej cli
 
 # Telegram bot
-./agent-x telegram
+./agent-ej telegram
 ```

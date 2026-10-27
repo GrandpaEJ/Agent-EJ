@@ -13,7 +13,7 @@
 #ifdef PICO_MODE
 void agent_run_cli(void) {
     char line[4096];
-    printf("\033[1;36mAgent X Pico Mode\033[0m (Type 'exit' to quit)\n");
+    printf("\033[1;36mAgent EJ Pico Mode\033[0m (Type 'exit' to quit)\n");
     while (1) {
         printf("\033[1;32m>\033[0m ");
         fflush(stdout);
@@ -31,7 +31,7 @@ void agent_run_cli(void) {
 void agent_run_cli(void) {
     char* line;
     linenoiseHistorySetMaxLen(100);
-    printf("\033[1;36mAgent X CLI Mode\033[0m (Type 'exit' to quit)\n");
+    printf("\033[1;36mAgent EJ CLI Mode\033[0m (Type 'exit' to quit)\n");
     while ((line = linenoise("\033[1;32m>\033[0m ")) != NULL) {
         if (strcmp(line, "exit") == 0 || strcmp(line, "quit") == 0) {
             free(line);
@@ -99,12 +99,12 @@ static void daemonize(void) {
         if (fd > 2) close(fd);
     }
     
-    FILE* fp = fopen("agent-x.pid", "w");
+    FILE* fp = fopen("agent-ej.pid", "w");
     if (fp) {
         fprintf(fp, "%d\n", getpid());
         fclose(fp);
     }
-    log_info("daemon_started", "Agent X background daemon successfully started");
+    log_info("daemon_started", "Agent EJ background daemon successfully started");
 }
 #endif
 

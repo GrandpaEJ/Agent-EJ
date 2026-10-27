@@ -1,6 +1,6 @@
 # Baksmali/Smali — Complete Feature Reference
 
-A comprehensive catalog of every feature, utility, and pattern in the baksmali/smali toolchain. Intended as a parity checklist for the native C11 agent-x reimplementation.
+A comprehensive catalog of every feature, utility, and pattern in the baksmali/smali toolchain. Intended as a parity checklist for the native C11 agent-ej reimplementation.
 
 ---
 
@@ -446,7 +446,7 @@ Adler32 checksum and SHA-1 signature are computed over the final DEX file.
 
 ---
 
-## 15. Agent-X Native Parity Status
+## 15. Agent-EJ Native Parity Status
 
 ### Completed
 - [x] DEX disassembly to smali (113 classes, 28/113 byte-identical to baksmali)
@@ -524,9 +524,9 @@ java -jar baksmali.jar dump classes.dex
 # Deodex oat file
 java -jar baksmali.jar deodex framework.oat -b boot.oat -o out/
 
-# Agent-X native equivalents
-./agent-x tool read_dex path=classes.dex out_dir=smali_out/     # disassemble
-./agent-x tool smali_assemble src_dir=smali_out/ out_dex=out.dex  # assemble
-./agent-x tool analyze_apk path=app.apk                          # analyze
-./agent-x tool disasm_dex path=classes.dex class=0               # single class
+# Agent-EJ native equivalents
+./agent-ej tool read_dex path=classes.dex out_dir=smali_out/     # disassemble
+./agent-ej tool smali_assemble src_dir=smali_out/ out_dex=out.dex  # assemble
+./agent-ej tool analyze_apk path=app.apk                          # analyze
+./agent-ej tool disasm_dex path=classes.dex class=0               # single class
 ```

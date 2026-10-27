@@ -1,6 +1,6 @@
-# Agent-X — Handoff (after the release of v0.9.0)
+# Agent-EJ — Handoff (after the release of v0.9.0)
 
-**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `main` (= `origin/main`) at `21f6f89` = release **v0.9.0**, tag pushed.
+**Repo:** `GrandpaEJ/Agent-EJ` · **Branch:** `main` (= `origin/main`) at `21f6f89` = release **v0.9.0**, tag pushed.
 **Status:** **Every open issue is closed** (#5 #7 #8 #13 #22 #24 #25 #26 #28 #30). Nothing is in progress; no branch is unpushed.
 
 The previous handoff's "next steps" are settled:
@@ -18,11 +18,11 @@ Remaining items are §7 below.
 - ⚠️ **`make clean` before every build.** Two separate traps:
   1. **The Makefile has no header dependency tracking** — `$(OBJ_DIR)/%.o: src/%.c` only. Editing a header does **not** recompile its consumers, so you can test a stale binary and chase a ghost bug. This cost a full debugging cycle on the XML compiler (the fix was in, the binary wasn't). Always `rm -rf .zig-cache && make clean && make release` after touching any `.h`.
   2. A stale object can break the link.
-- ⚠️ **Never commit build artifacts** (`agent-x`, `obj/`) — `.gitignore` covers them.
+- ⚠️ **Never commit build artifacts** (`agent-ej`, `obj/`) — `.gitignore` covers them.
 - ⚠️ **Never commit `CHANGELOG.md` edits from a subagent** — the lead edits it centrally (you are the lead: edit it yourself, featwise `docs(changelog)` on the branch, release commit opens the version section on main).
 - ⚠️ **The zig cache hides compiler diagnostics.** `zig cc` replays cached objects without re-emitting warnings, so an incremental build reports "0 warnings" even when the code has 53. **Always `rm -rf .zig-cache` before counting warnings.** True baseline: **53 pre-existing warnings**, all in files this work never touched (`grep 'warning:' | grep -c` on a cold `make release`).
 - ⚠️ **`jarsigner` must be invoked as `-verify` (with the dash).** A bare `verify` is parsed as the *signing* command with jarfile="verify" → jarsigner prompts `Enter Passphrase for keystore` and exits 1. This cost a debugging cycle in `tests/test_apk_v1_signing.sh`.
-- ⚠️ **Don't run a build and a test in the same shell batch.** The rebuild deletes `agent-x` mid-run and every test "fails" (39 phantom failures in one run).
+- ⚠️ **Don't run a build and a test in the same shell batch.** The rebuild deletes `agent-ej` mid-run and every test "fails" (39 phantom failures in one run).
 
 ### v1 signing knowledge you need before touching that code
 
@@ -190,8 +190,8 @@ decoder still uses them, the encoder is a second, independent path.
 GA Notification Monitor.apk    → 1,024,736 bytes in, 1,024,736 bytes out, cmp clean
 independent oracle dump        → 21,814 lines, 0 differences
 fixture from tests/arsc_build  → byte identical
-patched APK                    → aapt2: string/app_name = "Agent-X Patched"
-                                 apktool: <string name="app_name">Agent-X Patched</string>
+patched APK                    → aapt2: string/app_name = "Agent-EJ Patched"
+                                 apktool: <string name="app_name">Agent-EJ Patched</string>
 ```
 `tests/test_arsc_encode.sh` (**22/22**): takes the binary path as its first argument
 and the APKs from `ARSC_TEST_APKS` (newline separated). `tests/arsc_dump.py` is the
@@ -243,7 +243,7 @@ number-shaped string promoted to an integer, and colour types normalised to `0x1
 | `tests/test_arsc_encode.sh` (`ARSC_TEST_APKS`) | issue #5 | **22/22** |
 | `tests/dex_invariants.py` · `arsc_dump.py` · `arsc_build.py` · `arsc_xml_probe.py` | G7/G8/header checks; ARSC oracle; fixture builder; key-line isolator | 0 failures |
 
-Every script takes the binary path as `$1` (default `./agent-x`).
+Every script takes the binary path as `$1` (default `./agent-ej`).
 
 ### Current regression status (v0.9.0, cold `make release`)
 
@@ -267,13 +267,13 @@ byte-identity                 → 16/16 real APKs re-encode byte for byte throug
 ### Full regression recipe
 
 ```bash
-cd /home/grandpa/me/code/c-lang/Agent-X
+cd /home/grandpa/me/code/c-lang/Agent-EJ
 rm -rf .zig-cache && make clean && make release          # never parallel with a test run
 for t in t1 t2 t3 t4 ann ann2 ann3 ann4 bulk cls big huge p2 p3 p4 mref onlymethods \
          fieldkey x_field_arrow_nocolon x_enum_qmark x_method_arrow_noparen proto70 \
          tldedup proto300 proto300b dbgcmp dbg2 b1 b2 b3 b4 b5 b6 b7 b8 ann5 ann6 ann7 r2; do
   d=/tmp/opencode/$t; [ -d "$d" ] || continue
-  ./agent-x tool smali_assemble src_dir=$d out_dex=/tmp/opencode/final_$t.dex >/dev/null 2>&1 \
+  ./agent-ej tool smali_assemble src_dir=$d out_dex=/tmp/opencode/final_$t.dex >/dev/null 2>&1 \
     && echo "OK $t" || echo "FAIL $t"
 done
 APKS="$(ls ~/Downloads/Telegram\ Desktop/*.apk)"
@@ -299,8 +299,8 @@ Then rebuild `make release` for the real binary. Warning count only from a cold 
 
 ### Ephemeral fixtures in `/tmp/opencode` (recreate if gone)
 
-- Signing probes for #30: `f15` (min15), `f00` (no uses-sdk), `f18t23` (min18), `f24t23`/`f24clean` (min24), `longname` (342-byte name), `huge` (613), `noman` (manifest-less) — each built with `agent-x tool axml_assemble` + `zip -qr`, signed with `resign_apk key=/tmp/opencode/testkey_p8.pem cert=/tmp/opencode/testcert.der`.
-- Resource probes: any decode works, e.g. `agent-x tool decode_apk path="…/GA Notification Monitor.apk" out_dir=/tmp/opencode/dx` (its `values-land/integers.xml` holds `mtrl_calendar_header_orientation`, whose default value differs — the qualified-config fixture). `AntiSplit-X.apk` is the duplicate-key table.
+- Signing probes for #30: `f15` (min15), `f00` (no uses-sdk), `f18t23` (min18), `f24t23`/`f24clean` (min24), `longname` (342-byte name), `huge` (613), `noman` (manifest-less) — each built with `agent-ej tool axml_assemble` + `zip -qr`, signed with `resign_apk key=/tmp/opencode/testkey_p8.pem cert=/tmp/opencode/testcert.der`.
+- Resource probes: any decode works, e.g. `agent-ej tool decode_apk path="…/GA Notification Monitor.apk" out_dir=/tmp/opencode/dx` (its `values-land/integers.xml` holds `mtrl_calendar_header_orientation`, whose default value differs — the qualified-config fixture). `AntiSplit-X.apk` is the duplicate-key table.
 - `sec_digest_probe.py` — proves the section-digest convention (RAW vs UNWRAPPED).
 - Test material: `openssl genrsa -traditional -out testkey.pem 2048` → `openssl pkcs8 -topk8 -nocrypt …` → `openssl req -new -x509 … -outform DER -out testcert.der` (the tool parses **PKCS#8** only).
 
@@ -325,7 +325,7 @@ v0.9.0, worth an issue if it ever matters.
 
 ```bash
 # build (cold cache for real warnings)
-cd /home/grandpa/me/code/c-lang/Agent-X && rm -rf .zig-cache && make clean && make release
+cd /home/grandpa/me/code/c-lang/Agent-EJ && rm -rf .zig-cache && make clean && make release
 
 # oracles
 /home/grandpa/Android/Sdk/build-tools/35.0.0/apksigner    # APK oracle (v1 digest probes, verify)

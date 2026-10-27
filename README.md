@@ -1,5 +1,5 @@
 <div align="center">
-  <h1 align="center">Agent-X 🚀</h1>
+  <h1 align="center">Agent-EJ 🚀</h1>
   <p align="center">
     <strong>An Ultra-Lightweight, Zero-Dependency Autonomous AI Agent & Native Android Reverse Engineering Suite built in Pure C11</strong>
   </p>
@@ -16,9 +16,9 @@
 
 ## ⚡ Overview
 
-**Agent-X** is an alpha-stage, autonomous AI agent written from scratch in pure C11. Operating with an extremely tiny RAM footprint (~1.7 MB) and compiling to a static binary with **zero dynamic library dependencies**, it is highly optimized for deployment on VPS, Debian/Ubuntu servers, and Termux (Android).
+**Agent-EJ** is an alpha-stage, autonomous AI agent written from scratch in pure C11. Operating with an extremely tiny RAM footprint (~1.7 MB) and compiling to a static binary with **zero dynamic library dependencies**, it is highly optimized for deployment on VPS, Debian/Ubuntu servers, and Termux (Android).
 
-Beyond being an AI orchestrator, Agent-X is also a **Full-Fledged Native Android Reverse Engineering Suite**. It features a high-performance Dalvik Smali compiler and DEX parser, enabling Android APK modifications without requiring any Java/JDK installations.
+Beyond being an AI orchestrator, Agent-EJ is also a **Full-Fledged Native Android Reverse Engineering Suite**. It features a high-performance Dalvik Smali compiler and DEX parser, enabling Android APK modifications without requiring any Java/JDK installations.
 
 ## 🌟 Key Features
 
@@ -30,10 +30,10 @@ Beyond being an AI orchestrator, Agent-X is also a **Full-Fledged Native Android
 
 ### 🚀 High-Performance Daemonization
 - **POSIX Daemonization**: Fully daemonizes background Telegram bots via double-forking (`--daemon` flag).
-- **Process Management**: Automatically maps PID files (`agent-x.pid`) and outputs structured diagnostic JSON logs (`agent-x.log`) for easy monitoring.
+- **Process Management**: Automatically maps PID files (`agent-ej.pid`) and outputs structured diagnostic JSON logs (`agent-ej.log`) for easy monitoring.
 
 ### 📱 Zero-Java Android Reverse Engineering
-Agent-X includes an embedded, high-performance Dalvik compiler and DEX parser cleanly isolated inside `src/android/`:
+Agent-EJ includes an embedded, high-performance Dalvik compiler and DEX parser cleanly isolated inside `src/android/`:
 - **Smali Assembler**: Assemble `.smali` to Dalvik Executables (`classes.dex`).
 - **DEX Disassembler**: Disassemble `classes.dex` back into `.smali` files.
 - *(In Progress)*: Native AXML, ARSC, APK Signer, and ZipAlign integration. See [Architecture Roadmap](docs/RE_ARCHITECTURE.md) for details.
@@ -91,24 +91,24 @@ make pico
 
 ### Interactive CLI Mode
 ```bash
-./agent-x cli
+./agent-ej cli
 ```
 
 ### Background Telegram Daemon Mode
 To start the Telegram bot in the background:
 ```bash
-./agent-x telegram --daemon
+./agent-ej telegram --daemon
 ```
-*Note: The background process forks, writes its PID to `agent-x.pid`, and outputs logs to `agent-x.log`.*
+*Note: The background process forks, writes its PID to `agent-ej.pid`, and outputs logs to `agent-ej.log`.*
 
 To gracefully stop the daemon:
 ```bash
-kill $(cat agent-x.pid)
+kill $(cat agent-ej.pid)
 ```
 
 ## 🧩 Extending with Custom Skills
 
-Agent-X can be extended in seconds. To add a new tool (e.g., `get_weather`):
+Agent-EJ can be extended in seconds. To add a new tool (e.g., `get_weather`):
 
 1. **Create a Schema Definition (`skills/get_weather.json`)**:
    ```json
@@ -139,11 +139,11 @@ Agent-X can be extended in seconds. To add a new tool (e.g., `get_weather`):
    chmod +x skills/get_weather.sh
    ```
 
-Agent-X automatically detects, registers, and executes the tool. LLM arguments are injected securely as environment variables prefixed with `ARG_` (e.g., `$ARG_city`).
+Agent-EJ automatically detects, registers, and executes the tool. LLM arguments are injected securely as environment variables prefixed with `ARG_` (e.g., `$ARG_city`).
 
 ## 📊 Benchmarks & Footprint
 
-Agent-X is engineered for maximum efficiency. Below are the current benchmarks (v0.8.0 release, `make release`) running on a standard Linux environment:
+Agent-EJ is engineered for maximum efficiency. Below are the current benchmarks (v0.8.0 release, `make release`) running on a standard Linux environment:
 
 | Metric | Value |
 |--------|-------|
@@ -161,16 +161,16 @@ To interact with Android binaries without installing Java:
 
 **Assemble Smali to DEX:**
 ```bash
-./agent-x tool smali_assemble src_dir=path/to/smali out_dex=path/to/classes.dex
+./agent-ej tool smali_assemble src_dir=path/to/smali out_dex=path/to/classes.dex
 ```
 
 **Disassemble DEX to Smali:**
 ```bash
-./agent-x tool read_dex path/to/classes.dex
+./agent-ej tool read_dex path/to/classes.dex
 ```
 
 ---
 
 ## 📄 License
 
-Agent-X is open-source software licensed under the **[GNU General Public License v3.0](LICENSE)**.
+Agent-EJ is open-source software licensed under the **[GNU General Public License v3.0](LICENSE)**.

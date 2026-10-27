@@ -1,6 +1,10 @@
 # Build artifacts
 *.o
 obj/
+agent-ej
+agent-ej-*
+agent-ej-BlFaKF
+# Legacy name (pre-rename): stale builds must stay ignored, never committed
 agent-x
 agent-x-*
 agent-x-BlFaKF
@@ -11,6 +15,8 @@ agent-x-BlFaKF
 .agent_memory.json
 .agent_session.json
 .telegram_sessions/
+agent-ej.log
+agent-ej.pid
 agent-x.log
 agent-x.pid
 
