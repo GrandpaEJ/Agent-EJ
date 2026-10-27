@@ -8,6 +8,42 @@
 
 #include "cert_der.h"
 
+/* Digest choice mirrors apksigner (build-tools 35 probes, issue #30):
+ * SHA-256 iff minSdk >= 18 — below that SHA-256 fails apksigner's verify
+ * on API 15-17, while SHA-1 verifies at every level.  No manifest at all
+ * means a JAR-like input only jarsigner will read -> SHA-256; anything
+ * unreadable falls back to SHA-1, which every Android release accepts. */
+int apk_v1_use_sha256(zip_archive *za) {
+    int num_entries = zip_get_num_entries(za);
+    int idx = -1;
+    for (int i = 0; i < num_entries; i++) {
+        const char *n = zip_get_entry_name(za, i);
+        if (n && strcmp(n, "AndroidManifest.xml") == 0) { idx = i; break; }
+    }
+    if (idx < 0) return 1;
+
+    size_t size = 0;
+    void *data = zip_extract_entry(za, idx, &size);
+    if (!data) return 0;
+
+    axml_ctx *ctx = axml_parse(data, size);
+    free(data); // axml_parse copies what it needs (read_axml relies on this too)
+    if (!ctx) return 0;
+
+    int min_sdk = 1; // Android defaults a missing uses-sdk to 1
+    char *xml = axml_get_xml(ctx);
+    if (xml) {
+        const char *p = strstr(xml, "minSdkVersion");
+        if (p) {
+            const char *eq = strchr(p, '=');
+            const char *q = eq ? strchr(eq, '"') : NULL;
+            if (q) min_sdk = atoi(q + 1);
+        }
+    }
+    axml_free(ctx); // frees the xml string with the context
+    return min_sdk >= 18;
+}
+
 // Phase 5: ZIP Injection (Full APK Signing process)
 int apk_sign_v1(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len) {
 

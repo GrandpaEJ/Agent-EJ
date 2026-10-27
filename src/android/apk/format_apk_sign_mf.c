@@ -1,18 +1,53 @@
 #include "crypto.h"
 #include "formats.h"
 #include "format_apk_sign_internal.h"
+#include "format_arsc_buf.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h> // strncasecmp
 
-// Phase 2: Generate MANIFEST.MF
+/* JAR manifest lines may not exceed 72 content bytes (jar spec); longer
+ * values are wrapped onto continuation lines that begin with a single
+ * space.  jarsigner writes exactly this, apksigner writes the same shape
+ * at 70 bytes, and both verifiers accept both — probes in issue #30.
+ * Unwrapped lines are rejected outright: a 619-byte Name line made
+ * jarsigner throw "manifest line too long" and apksigner report
+ * "No JAR signatures". */
+#define V1_MANIFEST_LINE 72
 
-/* Mirrors JDK SignatureFileVerifier.isSigningRelated(): files that live
- * directly inside META-INF/ (case-insensitive) and are MANIFEST.MF, end
- * with .SF/.DSA/.RSA/.EC (case-insensitive), or are SIG-<name>.<1-3 alnum>
- * legacy blocks.  Everything else under META-INF (services/, *.version,
- * build metadata) is regular content that must be signed like any file. */
+/* Append "Name: <name>\r\n" wrapped at V1_MANIFEST_LINE content bytes. */
+static int append_name_section(arsc_buf *b, const char *name) {
+    size_t n = strlen(name);
+    if (arsc_buf_append(b, "Name: ", 6) != 0) return -1;
+    size_t first = n < (V1_MANIFEST_LINE - 6) ? n : (V1_MANIFEST_LINE - 6);
+    if (arsc_buf_append(b, name, first) != 0) return -1;
+    size_t pos = first;
+    while (pos < n) {
+        size_t chunk = (n - pos) < (V1_MANIFEST_LINE - 1) ? (n - pos)
+                                                          : (V1_MANIFEST_LINE - 1);
+        if (arsc_buf_append(b, "\r\n ", 3) != 0) return -1;
+        if (arsc_buf_append(b, name + pos, chunk) != 0) return -1;
+        pos += chunk;
+    }
+    return arsc_buf_append(b, "\r\n", 2);
+}
+
+/* Append "<attr>: <b64>\r\n\r\n" — one digest line plus the blank line
+ * that ends a manifest or SF section. */
+static int append_digest_line(arsc_buf *b, const char *attr,
+                              const char *b64, size_t b64_len) {
+    if (arsc_buf_append(b, attr, strlen(attr)) != 0) return -1;
+    if (arsc_buf_append(b, ": ", 2) != 0) return -1;
+    if (arsc_buf_append(b, b64, b64_len) != 0) return -1;
+    return arsc_buf_append(b, "\r\n\r\n", 4);
+}
+
+/* 1 for the files the JAR spec calls signature-related, mirrored from JDK
+ * SignatureFileVerifier.isSigningRelated(): MANIFEST.MF, and the .SF, .DSA,
+ * .RSA or .EC blocks plus SIG-<name>.<ext> legacy blocks directly inside
+ * META-INF/ (case-insensitive).  META-INF content files (services/,
+ * *.version, build metadata) return 0: they are signed like any file. */
 int apk_is_signature_file(const char *name) {
     if (strncasecmp(name, "META-INF/", 9) != 0) return 0;
     if (strchr(name + 9, '/')) return 0; // only directly inside META-INF/
@@ -47,20 +82,20 @@ int apk_is_signature_file(const char *name) {
     return 0;
 }
 
+// Phase 2: Generate MANIFEST.MF
 char* generate_manifest(zip_archive *za, size_t *out_len, int use_sha256) {
-    int num_entries = zip_get_num_entries(za);
-    size_t buf_cap = 256 + num_entries * 256;
-    char *manifest = malloc(buf_cap);
-    if (!manifest) return NULL;
     const char *attr = use_sha256 ? "SHA-256-Digest" : "SHA1-Digest";
     size_t hash_len = use_sha256 ? 32 : 20;
+    static const char header[] = "Manifest-Version: 1.0\r\nBuilt-By: Agent-X\r\n\r\n";
 
-    strcpy(manifest, "Manifest-Version: 1.0\r\nBuilt-By: Agent-X\r\n\r\n");
-    size_t len = strlen(manifest);
+    arsc_buf b;
+    arsc_buf_init(&b);
+    if (arsc_buf_append(&b, header, sizeof(header) - 1) != 0) goto fail;
 
+    int num_entries = zip_get_num_entries(za);
     for (int i = 0; i < num_entries; i++) {
         const char *name = zip_get_entry_name(za, i);
-        if (!name || strlen(name) == 0) continue;
+        if (!name || name[0] == '\0') continue;
         // Skip directories and the signature files themselves; META-INF
         // content files are signed like every other entry (issue #30: they
         // used to be dropped from the output APK altogether).
@@ -78,116 +113,108 @@ char* generate_manifest(zip_archive *za, size_t *out_len, int use_sha256) {
 
         size_t b64_len = 0;
         char *b64 = base64_encode(hash, hash_len, &b64_len);
+        if (!b64) goto fail;
 
-        int written = snprintf(manifest + len, buf_cap - len,
-                               "Name: %s\r\n%s: %s\r\n\r\n", name, attr, b64);
-        if (written > 0) len += written;
+        int rc = append_name_section(&b, name);
+        if (rc == 0) rc = append_digest_line(&b, attr, b64, b64_len);
         free(b64);
+        if (rc != 0) goto fail;
     }
+
+    size_t len = b.len;      // content length, without the NUL below
+    if (arsc_buf_u8(&b, 0) != 0) goto fail; // NUL for the SF parser
     *out_len = len;
-    return manifest;
-}
+    return (char *)b.data;
 
-int apk_v1_use_sha256(zip_archive *za) {
-    // Digest choice mirrors apksigner (build-tools 35 probes, issue #30):
-    // SHA-256 iff minSdk >= 18.  No manifest means a JAR-like input only
-    // jarsigner will read -> SHA-256; anything unreadable falls back to
-    // SHA-1, which every Android release accepts.
-    int num_entries = zip_get_num_entries(za);
-    const char *name = NULL;
-    for (int i = 0; i < num_entries; i++) {
-        const char *n = zip_get_entry_name(za, i);
-        if (n && strcmp(n, "AndroidManifest.xml") == 0) { name = n; break; }
-    }
-    if (!name) return 1;
-
-    int idx = 0;
-    for (int i = 0; i < num_entries; i++)
-        if (strcmp(zip_get_entry_name(za, i), name) == 0) { idx = i; break; }
-
-    size_t size = 0;
-    void *data = zip_extract_entry(za, idx, &size);
-    if (!data) return 0;
-
-    axml_ctx *ctx = axml_parse(data, size);
-    free(data); // axml_parse copies what it needs (read_axml relies on this too)
-    if (!ctx) return 0;
-
-    int min_sdk = 1; // Android defaults a missing uses-sdk to 1
-    char *xml = axml_get_xml(ctx);
-    if (xml) {
-        const char *p = strstr(xml, "minSdkVersion");
-        if (p) {
-            const char *eq = strchr(p, '=');
-            const char *q = eq ? strchr(eq, '"') : NULL;
-            if (q) min_sdk = atoi(q + 1);
-        }
-    }
-    axml_free(ctx); // frees the xml string with the context
-    return min_sdk >= 18;
+fail:
+    arsc_buf_free(&b);
+    return NULL;
 }
 
 // Phase 3: Generate CERT.SF
 char* generate_signature_file(const char *manifest, size_t manifest_len, size_t *out_len, int do_v2, int do_v3, int use_sha256) {
-    size_t buf_cap = manifest_len + 512;
-    char *sf = malloc(buf_cap);
-    if (!sf) return NULL;
     const char *attr = use_sha256 ? "SHA-256-Digest" : "SHA1-Digest";
     const char *main_attr = use_sha256 ? "SHA-256-Digest-Manifest" : "SHA1-Digest-Manifest";
     size_t hash_len = use_sha256 ? 32 : 20;
 
-    // Hash the entire manifest
+    static const char sf_header[] = "Signature-Version: 1.0\r\nCreated-By: Agent-X\r\n";
+    static const char x_both[]    = "X-Android-APK-Signed: 2, 3\r\n";
+    static const char x_v3[]      = "X-Android-APK-Signed: 3\r\n";
+    static const char x_v2[]      = "X-Android-APK-Signed: 2\r\n";
+
+    arsc_buf b;
+    arsc_buf_init(&b);
+    if (arsc_buf_append(&b, sf_header, sizeof(sf_header) - 1) != 0) goto fail;
+    if (do_v2 && do_v3) {
+        if (arsc_buf_append(&b, x_both, sizeof(x_both) - 1) != 0) goto fail;
+    } else if (do_v3) {
+        if (arsc_buf_append(&b, x_v3, sizeof(x_v3) - 1) != 0) goto fail;
+    } else if (do_v2) {
+        if (arsc_buf_append(&b, x_v2, sizeof(x_v2) - 1) != 0) goto fail;
+    }
+
+    // Hash the entire manifest over its raw stored bytes — the verifiers
+    // hash the stored bytes too (wrapping included, probe-verified).
     uint8_t man_hash[32];
     if (use_sha256) sha256(manifest, manifest_len, man_hash);
     else sha1(manifest, manifest_len, man_hash);
     size_t b64_len = 0;
     char *man_b64 = base64_encode(man_hash, hash_len, &b64_len);
+    if (!man_b64) goto fail;
 
-    strcpy(sf, "Signature-Version: 1.0\r\nCreated-By: Agent-X\r\n");
-    if (do_v2 && do_v3) {
-        strcat(sf, "X-Android-APK-Signed: 2, 3\r\n");
-    } else if (do_v3) {
-        strcat(sf, "X-Android-APK-Signed: 3\r\n");
-    } else if (do_v2) {
-        strcat(sf, "X-Android-APK-Signed: 2\r\n");
-    }
-    size_t len = strlen(sf);
-
-    len += snprintf(sf + len, buf_cap - len, "%s: %s\r\n\r\n", main_attr, man_b64);
+    int rc = arsc_buf_append(&b, main_attr, strlen(main_attr));
+    if (rc == 0) rc = arsc_buf_append(&b, ": ", 2);
+    if (rc == 0) rc = arsc_buf_append(&b, man_b64, b64_len);
     free(man_b64);
+    if (rc == 0) rc = arsc_buf_append(&b, "\r\n\r\n", 4);
+    if (rc != 0) goto fail;
 
-    // Parse the manifest line by line to hash individual sections
-    // A section in MANIFEST.MF looks like:
-    // Name: AndroidManifest.xml\r\nSHA-256-Digest: ...\r\n\r\n
-    // We need to hash exactly this string (including \r\n\r\n)
-
+    // One SF section per manifest section.  The section digest covers the
+    // manifest's raw section bytes (wrapping included — proven against the
+    // reference jars).  The section name is copied byte-for-byte from the
+    // manifest so a wrapped Name line stays wrapped: the Manifest parser
+    // unwraps it to the same logical name on both sides, while an
+    // unwrapped 600-byte line in the SF would be rejected as too long.
     const char *p = strstr(manifest, "Name: ");
     while (p) {
         const char *end = strstr(p, "\r\n\r\n");
         if (!end) break;
-        end += 4; // Include the \r\n\r\n
+        end += 4; // include the \r\n\r\n of the section
 
-        size_t section_len = end - p;
-        uint8_t sec_hash[32];
-        if (use_sha256) sha256(p, section_len, sec_hash);
-        else sha1(p, section_len, sec_hash);
-
-        char *sec_b64 = base64_encode(sec_hash, hash_len, &b64_len);
-
-        // Extract the name to write to SF
-        const char *nl = strstr(p, "\r\n");
-        size_t name_line_len = nl - p;
-        char name_line[512] = {0};
-        if (name_line_len < sizeof(name_line)) {
-            strncpy(name_line, p, name_line_len);
+        // Locate the digest line: walk past the name line and any
+        // continuation lines (they start with a space).
+        const char *dl = strstr(p, "\r\n");
+        if (!dl || dl >= end) break;
+        dl += 2;
+        while (dl < end && dl[0] == ' ') {
+            dl = strstr(dl, "\r\n");
+            if (!dl || dl >= end) break;
+            dl += 2;
         }
+        if (!dl || dl >= end) break;
 
-        len += snprintf(sf + len, buf_cap - len, "%s\r\n%s: %s\r\n\r\n", name_line, attr, sec_b64);
+        // name portion = [p, dl): the Name line(s) including their CRLFs
+        if (arsc_buf_append(&b, p, (size_t)(dl - p)) != 0) goto fail;
+
+        // digest over the exact manifest section bytes
+        uint8_t sec_hash[32];
+        if (use_sha256) sha256(p, (size_t)(end - p), sec_hash);
+        else sha1(p, (size_t)(end - p), sec_hash);
+        char *sec_b64 = base64_encode(sec_hash, hash_len, &b64_len);
+        if (!sec_b64) goto fail;
+        rc = append_digest_line(&b, attr, sec_b64, b64_len);
         free(sec_b64);
+        if (rc != 0) goto fail;
 
         p = strstr(end, "Name: ");
     }
 
+    size_t len = b.len;
+    if (arsc_buf_u8(&b, 0) != 0) goto fail;
     *out_len = len;
-    return sf;
+    return (char *)b.data;
+
+fail:
+    arsc_buf_free(&b);
+    return NULL;
 }
