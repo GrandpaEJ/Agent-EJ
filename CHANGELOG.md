@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.9.0] - 2026-10-27
+
 ### Added
 - **The decoded `res/values` tree is compiled back into `resources.arsc`** — an edit made after `decode_apk` now reaches the rebuilt APK. `decode_apk` turned every resource value into a `res/values` XML file, but `build_apk` packed whatever `resources.arsc` was on disk, so those files were documentation only: change a string, rebuild, and the APK still had the old value. The new `arsc_compile_xml()` walks the values directories, patches the matching entries of the original table and re-encodes it, and `build_apk` runs it ahead of the pack step (`apk_recompile_resources()`); a table it cannot compile is left in place rather than failing the build.
 - **`arsc_compile` tool** — `arsc=<table> res_dir=<res> out=<table>` compiles a decoded tree without a build, reporting how many values changed and how many were left alone.
