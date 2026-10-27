@@ -1,9 +1,13 @@
-# Agent-X — Handoff (after the release of v0.8.4)
+# Agent-X — Handoff (after the release of v0.9.0)
 
-**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `main` (= `origin/main`) at `228ca91` = release **v0.8.4**, tag pushed.
+**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `main` (= `origin/main`) at `21f6f89` = release **v0.9.0**, tag pushed.
 **Status:** **Every open issue is closed** (#5 #7 #8 #13 #22 #24 #25 #26 #28 #30). Nothing is in progress; no branch is unpushed.
 
-The previous handoff's "next steps" are settled: the **v1 (JAR) signing path** work (issue #30) shipped as v0.8.4 via PR #31 (squash `c8dbd65`). Remaining items are §7 below.
+The previous handoff's "next steps" are settled:
+- **v1 (JAR) signing path** (issue #30) → v0.8.4, PR #31 squash `c8dbd65`.
+- **XML → ARSC compiler** (§7's big feature) → v0.9.0, PR #32 squash `921855f`. Details in §5.5.
+
+Remaining items are §7 below.
 
 ---
 
@@ -11,11 +15,14 @@ The previous handoff's "next steps" are settled: the **v1 (JAR) signing path** w
 
 - Repo rules (`AGENTS.md`): **featwise commits**, **Small File Rule** (max 250 LOC per `.c`), C11, no new deps, memory-first, semantic versioning + `git tag` per release.
 - Evidence protocol: **every claim must come from a command run in-session.**
-- ⚠️ **`make clean` before every build** — a stale object breaks the link.
+- ⚠️ **`make clean` before every build.** Two separate traps:
+  1. **The Makefile has no header dependency tracking** — `$(OBJ_DIR)/%.o: src/%.c` only. Editing a header does **not** recompile its consumers, so you can test a stale binary and chase a ghost bug. This cost a full debugging cycle on the XML compiler (the fix was in, the binary wasn't). Always `rm -rf .zig-cache && make clean && make release` after touching any `.h`.
+  2. A stale object can break the link.
 - ⚠️ **Never commit build artifacts** (`agent-x`, `obj/`) — `.gitignore` covers them.
 - ⚠️ **Never commit `CHANGELOG.md` edits from a subagent** — the lead edits it centrally (you are the lead: edit it yourself, featwise `docs(changelog)` on the branch, release commit opens the version section on main).
 - ⚠️ **The zig cache hides compiler diagnostics.** `zig cc` replays cached objects without re-emitting warnings, so an incremental build reports "0 warnings" even when the code has 53. **Always `rm -rf .zig-cache` before counting warnings.** True baseline: **53 pre-existing warnings**, all in files this work never touched (`grep 'warning:' | grep -c` on a cold `make release`).
 - ⚠️ **`jarsigner` must be invoked as `-verify` (with the dash).** A bare `verify` is parsed as the *signing* command with jarfile="verify" → jarsigner prompts `Enter Passphrase for keystore` and exits 1. This cost a debugging cycle in `tests/test_apk_v1_signing.sh`.
+- ⚠️ **Don't run a build and a test in the same shell batch.** The rebuild deletes `agent-x` mid-run and every test "fails" (39 phantom failures in one run).
 
 ### v1 signing knowledge you need before touching that code
 
@@ -26,6 +33,17 @@ The previous handoff's "next steps" are settled: the **v1 (JAR) signing path** w
 - **Do not chase the combined-at-min24 `v1: false` verdict:** with v2 present and min-sdk ≥ 24 apksigner skips v1 verification — and reports `v1: false` for **its own output** too (forced `--min-sdk-version 18` → all three true). Our parity matrix matched apksigner's own output in every cell.
 - **SHA-1 fixtures produce JDK warnings by design** (`treated as unsigned`, policy not defect — real jarsigner output does it too); the regression test asserts SHA-1 cases with apksigner only.
 - PKCS#7: `encryptedDigest` must be exactly `key->bits/8` bytes (the v1 path hardcoded 256 → apksigner `Bad signature length: got 256 but was expecting 128` for 1024-bit keys; same fix #13 gave v2/v3).
+
+### Resource compiler knowledge (v0.9.0) — read before touching §5.5's code
+
+- **The invariant that keeps it honest:** decoding a table and compiling the resulting tree *without editing it* must reproduce the original bytes. Every design choice below exists to protect that; `tests/test_arsc_compile_xml.sh` asserts it on the fixture and on 16 real APKs.
+- **An unchanged entry is never touched.** Patching it would append a duplicate string to the global pool (`count` 7527 → 7528) and change the table. Compare first, skip if equal.
+- **Resolution goes through the model, not a resource id** — a decoded value has a type name and a configuration but no id, so `values-fr/<string name=x>` must reach the French entry.
+- **The configuration qualifier is rebuilt with the decoder's own `apk_build_config_str()`**, fed a synthesised 20-byte `ResChunk_header` in front of the raw config the model carries (its own `size` field is what bounds the reads). Sharing one implementation is what makes the decoder's directory names and the compiler's match by construction. Note the trailing `snprintf(out, "-%s", buf)` is what adds the leading dash: `values-land`, not `valuesland`.
+- **The entry's data type decides how its text is read**, never the text's shape. `gcm_defaultSenderId` holds numeric text and must stay a STRING (a heuristic turned it into INT_DEC, `data=1303` → `467550666`); colours keep their own type (`value=28` must stay `28`, not be normalised to `0x14`); values with no text form (dimension, fraction, dynamic reference) are **skipped**, not rewritten.
+- **Duplicate keys are matched in entry order.** `AntiSplit-X.apk` names *every* entry `HEHE_BOI`; mapping all seven `<color>` elements onto the first lost six entries. The decoder emits one element per entry in index order, so the Nth element must reach the Nth entry (see `next_occurrence()` in `format_arsc_xml_parse.c` — its counter starts at 1, because occurrence 0 is handed out on creation).
+- **`public.xml` is skipped** (ids only, the table already encodes them), as are self-closing markers, `<item>` children and anything whose captured text contains markup (a bag).
+- **`aapt2 dump resources` needs a package with an AndroidManifest.xml to exit 0** — a zip holding only `resources.arsc` prints the dump but returns 1. And `$CMD | head; echo rc=$?` reports `head`'s status, not the tool's.
 
 ---
 
@@ -42,26 +60,34 @@ The previous handoff's "next steps" are settled: the **v1 (JAR) signing path** w
 | **24** | `format_apk_decode_arsc`: resource qualifier parsing | ✅ closed, PR #27 |
 | **26** | DEX 037 support, smali paths, hardening | ✅ closed, PR #26 |
 | **28** | annotation `.enum` out-of-range field index | ✅ closed, PR #29 → `b98d6cd`, v0.8.3 |
-| **30** | v1 JAR signing: SHA-1 + `nonexistent signed entries` | ✅ **closed, PR #31 → `c8dbd65`, v0.8.4** — §3 |
+| **30** | v1 JAR signing: SHA-1 + `nonexistent signed entries` | ✅ closed, PR #31 → `c8dbd65`, v0.8.4 — §3 |
+
+v0.9.0 closed no issue: it shipped the handoff's designated next feature (§5.5).
 
 ## 2. Commits
 
-### v0.8.4 (issue #30) — squash merge `c8dbd65` on main, release `228ca91`
+### v0.9.0 (XML → ARSC compiler) — squash merge `921855f` on main, release `21f6f89`
+
+```
+21f6f89 release: bump version to 0.9.0
+921855f feat(arsc): compile the decoded res values tree back into resources.arsc (XML → ARSC) (#32)
+```
+Branch (deleted on merge), in order:
+```
+6e0d9ca docs(changelog): record the res values XML compiler
+1e74c2e test(arsc): regression tests for the XML resource compiler
+87baeb5 feat(apk): recompile the resource table during build_apk
+fb06314 feat(tools): add the arsc_compile tool
+5c1732d feat(arsc): compile the decoded res values tree back into resources.arsc
+```
+
+### v0.8.4 (issue #30) — squash merge `c8dbd65`, release `228ca91`
 
 ```
 228ca91 release: bump version to 0.8.4
 c8dbd65 fix(apk): v1 signing — apksigner-parity digest, META-INF preservation, long-name safety (#30) (#31)
 ```
-Branch (deleted on merge), in order:
-```
-ef20be1 docs(changelog): record the v1 signing fixes of issue #30
-ec0a4c4 test(apk): add a regression test for the v1 signing path
-a56a8eb fix(apk): size the PKCS#7 signature by the signing key
-4e1dd2a fix(apk): wrap long manifest name lines and size the v1 buffers by content
-5eee8d3 feat(apk): sign the v1 manifest with the digest apksigner would choose
-c0642af fix(apk): keep META-INF content entries when signing with v1
-4ffa073 refactor(apk): split the v1 signer into manifest, PKCS7 and orchestration files
-```
+Branch (deleted), in order: `ef20be1` docs · `ec0a4c4` test · `a56a8eb` PKCS#7 key-length · `4e1dd2a` wrap + growable buffers · `5eee8d3` apksigner-parity digest · `c0642af` META-INF content · `4ffa073` split the v1 signer
 
 ### Earlier (from the v0.8.3 handoff)
 
@@ -136,7 +162,7 @@ configuration of every type, so the other configurations were unreachable.
 | `format_arsc_write.c` | 94 | `arsc_encode()`: table, package chunks |
 | `format_arsc_write_pool.c` | 78 | the string pools |
 | `format_arsc_write_entry.c` | 96 | type spec, type chunk, entries |
-| `src/tools/tool_arsc.c` | 191 | the `arsc_encode` and `arsc_info` tools |
+| `src/tools/tool_arsc.c` | 218 | the `arsc_encode`, `arsc_info` and `arsc_compile` tools |
 
 The old `format_arsc_parse.c` / `format_arsc_build.c` are untouched: the AXML
 decoder still uses them, the encoder is a second, independent path.
@@ -171,50 +197,78 @@ patched APK                    → aapt2: string/app_name = "Agent-X Patched"
 and the APKs from `ARSC_TEST_APKS` (newline separated). `tests/arsc_dump.py` is the
 independent oracle, `tests/arsc_build.py` builds a fixture without aapt2.
 
-### 5.5 What is still missing → §7 item 2
+### 5.5 The XML → ARSC compiler — **SHIPPED in v0.9.0** (this was §7's item 2)
 
-The encoder writes a table; it does **not compile** `res/values/*.xml` into one.
-`decode_apk` writes the resources as XML and `build_apk` copies the original
-`resources.arsc` back, so a value edited in `res/values/strings.xml` is still lost.
-An XML → ARSC compiler (the aapt2 half of the job) is the natural follow-up; the
-model and the writer are the part it needs.
+`decode_apk` wrote the resources as XML and `build_apk` copied the original
+`resources.arsc` back, so a value edited in `res/values/strings.xml` was lost. The
+compiler closes the loop.
 
+| File | LOC | What it does |
+|---|---|---|
+| `format_arsc_xml.c` | 114 | `arsc_compile_xml()`: walk the values directories, encode, write |
+| `format_arsc_xml_entry.c` | 164 | qualifier rebuild, entry lookup, type-driven value conversion |
+| `format_arsc_xml_parse.c` | 207 | element scanner, entity unescaping, duplicate-key occurrence counting |
+| `format_arsc_xml_internal.h` | 36 | the module-private API between those three |
+| `format_apk_build_res.c` | 47 | `apk_recompile_resources()`: the `build_apk` hook |
+| `tests/test_arsc_compile_xml.sh` | 294 | 53 assertions |
+| `tests/arsc_xml_probe.py` | 42 | isolates the dump lines naming one key |
+
+Design rules and the defects that forced them are in §0 ("Resource compiler
+knowledge"). In short:
+
+```
+unedited round trip      → byte-identical on the fixture + 16/16 real APKs
+edits proven            → string (pool +1), bool (type 18 kept), colour (type 0x1c kept),
+                           integer, qualified values-land (default config untouched)
+end to end              → decode BotX Dialog → edit app_name → build_apk
+                          aapt2: string/app_name = "BOTX_FULL_E2E_OK", badging parses,
+                          apksigner verify rc=0
+build_apk hook          → compiles to a temp file renamed over the original; on failure
+                          the original table is packed (old behaviour, never a broken build)
+```
+
+Three defects were found *by* the byte-identity assertion and fixed: duplicate keys
+collapsed onto the first entry (6 of 7 colours lost in `AntiSplit-X.apk`), a
+number-shaped string promoted to an integer, and colour types normalised to `0x14`
+(250 entries of GA Notification Monitor).
 
 ## 6. Test assets (all in the repository)
 
-| Script | What it does | Result (v0.8.4) |
+| Script | What it does | Result (v0.9.0) |
 |---|---|---|
-| **`tests/test_apk_v1_signing.sh`** | **issue #30: digest rule at the minSdk 17/18 boundary, META-INF preservation + manifest listing, combined v1+v2+v3 (both oracles), a 542-byte wrapped name (≤72 lines), a 1024-bit key. oracles skipped when absent.** | **28/28** |
+| **`tests/test_arsc_compile_xml.sh`** (`ARSC_TEST_APKS`) | XML→ARSC: unedited byte-identity on fixture + all given APKs, single-edit isolation, bags/unknown types untouched, `build_apk` packs the compiled table, qualified-directory edits spare the default config, aapt2 accepts | **53/53** |
+| `tests/test_apk_v1_signing.sh` | issue #30: digest rule at the minSdk 17/18 boundary, META-INF preservation, combined v1+v2+v3 (both oracles), a 542-byte wrapped name, a 1024-bit key | **28/28** |
 | `tests/test_apk_signing.sh` | issue #13: cert/key mismatch + apksigner v2/v3 | **12/12** |
-| `tests/test_apk_signing.sh` … register/diagnostics/annotations | issues #22/#8/#28 | **21/21 · 7/7 · 16/16** |
-| `tests/test_arsc_encode.sh` (`ARSC_TEST_APKS` env) | issue #5 | **22/22** |
-| `tests/dex_invariants.py` · `tests/arsc_dump.py` · `tests/arsc_build.py` | G7/G8/header checks; ARSC oracle; fixture builder | 0 failures |
+| register/diagnostics/annotations suites | issues #22/#8/#28 | **21/21 · 7/7 · 16/16** |
+| `tests/test_arsc_encode.sh` (`ARSC_TEST_APKS`) | issue #5 | **22/22** |
+| `tests/dex_invariants.py` · `arsc_dump.py` · `arsc_build.py` · `arsc_xml_probe.py` | G7/G8/header checks; ARSC oracle; fixture builder; key-line isolator | 0 failures |
 
 Every script takes the binary path as `$1` (default `./agent-x`).
 
-### Current regression status (v0.8.4, cold `make release`)
+### Current regression status (v0.9.0, cold `make release`)
 
 ```
+test_arsc_compile_xml.sh      → 53 pass, 0 fail      (16 APKs: round trip + aapt2)
 test_apk_v1_signing.sh        → 28 pass, 0 fail      (oracles: apksigner 35.0.0, JDK 21 jarsigner)
 test_apk_signing.sh           → 12 pass, 0 fail
 test_smali_register_limits.sh → 21 pass, 0 fail
 test_smali_diagnostics.sh     → 7 pass, 0 fail
 test_smali_annotations.sh     → 16 pass, 0 fail
-test_arsc_encode.sh           → 22 pass, 0 fail       (106 total assertions)
+test_arsc_encode.sh           → 22 pass, 0 fail       (159 total assertions across the 7 suites)
 39 smali fixtures assemble    → 39 OK, 0 FAIL
 baksmali on all outputs       → all OK
 python3 tests/dex_invariants.py → 0 failures
-ASan/UBSan/LSan (signing paths: long names, META-INF, 1024-bit, combined, manifest-less) → no report
+ASan/UBSan/LSan (compiler, encoder, build/decode, signing paths) → no report
 warnings (rm -rf .zig-cache)  → 53 (unchanged baseline)
-byte-identity                 → short-name fixtures identical across the refactor +
-                                the buffer rewrite + the PKCS#7 key-length fix
+byte-identity                 → 16/16 real APKs re-encode byte for byte through the compiler;
+                                short-name fixtures identical across the v1 refactor
 ```
 
 ### Full regression recipe
 
 ```bash
 cd /home/grandpa/me/code/c-lang/Agent-X
-rm -rf .zig-cache && make clean && make release
+rm -rf .zig-cache && make clean && make release          # never parallel with a test run
 for t in t1 t2 t3 t4 ann ann2 ann3 ann4 bulk cls big huge p2 p3 p4 mref onlymethods \
          fieldkey x_field_arrow_nocolon x_enum_qmark x_method_arrow_noparen proto70 \
          tldedup proto300 proto300b dbgcmp dbg2 b1 b2 b3 b4 b5 b6 b7 b8 ann5 ann6 ann7 r2; do
@@ -222,27 +276,31 @@ for t in t1 t2 t3 t4 ann ann2 ann3 ann4 bulk cls big huge p2 p3 p4 mref onlymeth
   ./agent-x tool smali_assemble src_dir=$d out_dex=/tmp/opencode/final_$t.dex >/dev/null 2>&1 \
     && echo "OK $t" || echo "FAIL $t"
 done
+APKS="$(ls ~/Downloads/Telegram\ Desktop/*.apk)"
+./tests/test_arsc_compile_xml.sh                       # or ARSC_TEST_APKS="$APKS" ...
 ./tests/test_apk_v1_signing.sh
 ./tests/test_apk_signing.sh
 ./tests/test_smali_register_limits.sh
 ./tests/test_smali_diagnostics.sh
 ./tests/test_smali_annotations.sh
-ARSC_TEST_APKS="$(ls ~/Downloads/Telegram\ Desktop/*.apk)" ./tests/test_arsc_encode.sh
+ARSC_TEST_APKS="$APKS" ./tests/test_arsc_encode.sh
 python3 tests/dex_invariants.py /tmp/opencode/final_*.dex
 /home/grandpa/.local/bin/baksmali d /tmp/opencode/final_t1.dex -o /tmp/opencode/final_t1_out
 ```
-Sanitizer pass (signing paths):
+Sanitizer pass:
 ```bash
 rm -rf .zig-cache && make clean && make CC="gcc -fsanitize=address,undefined -fno-omit-frame-pointer -g" \
                                             LDFLAGS="-fsanitize=address,undefined"
-ASAN_OPTIONS=detect_leaks=1 ./tests/test_apk_v1_signing.sh
+ASAN_OPTIONS=detect_leaks=1 ./tests/test_arsc_compile_xml.sh
+ASAN_OPTIONS=detect_leaks=1 ./tests/test_arsc_encode.sh
 ASAN_OPTIONS=detect_leaks=1 ./tests/test_apk_signing.sh
 ```
 Then rebuild `make release` for the real binary. Warning count only from a cold cache.
 
 ### Ephemeral fixtures in `/tmp/opencode` (recreate if gone)
 
-- Signing probes for #30: `f15` (min15), `f00` (no uses-sdk), `f18t23` (min18), `f24t23`/`f24clean` (min24), `fm17`-style boundaries, `longname` (342-byte name), `huge` (613), `noman` (manifest-less) — each built with `agent-x tool axml_assemble` + `zip -qr`, signed with `resign_apk key=/tmp/opencode/testkey_p8.pem cert=/tmp/opencode/testcert.der`.
+- Signing probes for #30: `f15` (min15), `f00` (no uses-sdk), `f18t23` (min18), `f24t23`/`f24clean` (min24), `longname` (342-byte name), `huge` (613), `noman` (manifest-less) — each built with `agent-x tool axml_assemble` + `zip -qr`, signed with `resign_apk key=/tmp/opencode/testkey_p8.pem cert=/tmp/opencode/testcert.der`.
+- Resource probes: any decode works, e.g. `agent-x tool decode_apk path="…/GA Notification Monitor.apk" out_dir=/tmp/opencode/dx` (its `values-land/integers.xml` holds `mtrl_calendar_header_orientation`, whose default value differs — the qualified-config fixture). `AntiSplit-X.apk` is the duplicate-key table.
 - `sec_digest_probe.py` — proves the section-digest convention (RAW vs UNWRAPPED).
 - Test material: `openssl genrsa -traditional -out testkey.pem 2048` → `openssl pkcs8 -topk8 -nocrypt …` → `openssl req -new -x509 … -outform DER -out testcert.der` (the tool parses **PKCS#8** only).
 
@@ -251,13 +309,17 @@ Then rebuild `make release` for the real binary. Warning count only from a cold 
 | # | Item | State |
 |---|---|---|
 | 1 | Issue #30 — v1 signing path | ✅ **done, v0.8.4** |
-| 2 | **XML → ARSC compiler** — `decode_apk` writes resources as XML but `build_apk` copies the original `resources.arsc`, so values edited in `res/values/strings.xml` are still lost. The model+writer from #5 are the building blocks. | **open — next big feature** |
-| 3 | **Small File Rule violations**: `smali_writer.c` 1233, `smali_pool.c` 767, `smali_insn_parser.c` 526, `smali_parser.c` 512 (limit 250). The v1 signer files were also over and are now split ≤250 (`format_apk_sign.c` 131 / `_mf.c` 220 / `_pkcs7.c` 192). | open |
+| 2 | **XML → ARSC compiler** | ✅ **done, v0.9.0** — §5.5 |
+| 3 | **Small File Rule violations — 20 `.c` files over 250 LOC**, not 4. Worst: `smali_writer.c` 1233, `smali_pool.c` 767, `format_dex_smali_method.c` 689, `format_axml_encode.c` 583, `smali_insn_parser.c` 526, `smali_parser.c` 508, `format_dex_disasm.c` 420, `agent.c` 387, `format_axml_output.c` 364, `format_arsc_toml.c` 347, `tool_dex.c` 333, `format_apk_decode_arsc.c` 327, `format_apk_build.c` 305 (grew +4 in v0.9.0; the compiler's hook was deliberately put in its own 47-line file to stop it growing). Full list: `find src -name '*.c' \| xargs wc -l \| sort -rn \| awk '$1>250'` | open |
 | 4 | `smali_pool.c` `comp_field_key`/`comp_method_key` strict-weak-ordering (LOW, PR review finding) | open |
-| 5 | The 53 pre-existing warnings (§6.4 of the v0.8.2 handoff; files untouched so far) | open |
+| 5 | The 53 pre-existing warnings (files untouched so far) | open |
 | 6 | Delete the kept branch: `git push origin --delete fix/open-issues-13-25-24-5-22-8` (its commits are cited in issue comments; decide when those comments no longer need them) | open |
 
-Suggested order: **2** (the feature the arsc encoder was built for), then 3/4/5 as refactors, 6 whenever.
+Suggested order: **3 / 4 / 5** as refactors (no open feature work remains), 6 whenever.
+The only feature-shaped gap left in the APK pipeline is the reverse of §5.5: the
+decoder's *file* side (it writes `res/<type>/…` summaries for non-value types and
+packs the whole `res/` tree of raw XML into the built APK) — out of scope for
+v0.9.0, worth an issue if it ever matters.
 
 ## 8. Environment cheat-sheet
 
@@ -270,7 +332,7 @@ cd /home/grandpa/me/code/c-lang/Agent-X && rm -rf .zig-cache && make clean && ma
 /usr/bin/jarsigner                                         # JDK 21 JAR oracle — always `-verify`
 /home/grandpa/.local/bin/baksmali                          # reference disassembler
 /home/grandpa/.local/bin/smali                             # reference assembler
-/home/grandpa/Android/Sdk/build-tools/35.0.0/aapt2         # ARSC/APK oracle
+/home/grandpa/Android/Sdk/build-tools/35.0.0/aapt2         # ARSC/APK oracle (needs a manifest in the zip)
 /home/grandpa/.local/bin/apktool                           # APK decode oracle
 
 # key material (the tool parses PKCS#8, not PKCS#1)
@@ -280,8 +342,10 @@ openssl pkcs8 -topk8 -nocrypt -in testkey.pem -out testkey_p8.pem
 openssl req -new -x509 -key testkey.pem -subj "/CN=Test" -days 3650 -outform DER -out testcert.der
 
 # sample APKs
-~/Downloads/Telegram\ Desktop/GA\ Notification\ Monitor.apk     # rich resource qualifiers; SHA-256 v1 SF sample
-~/Downloads/Telegram\ Desktop/base\ (9).apk                      # 4.8 MB resource table
+~/Downloads/Telegram\ Desktop/GA\ Notification\ Monitor.apk   # rich qualifiers; qualified-edit fixture
+~/Downloads/Telegram\ Desktop/AntiSplit-X.apk                 # every entry named HEHE_BOI (duplicate keys)
+~/Downloads/Telegram\ Desktop/BotX\ Dialog.apk                # small APK whose build round trips end to end
+~/Downloads/Telegram\ Desktop/base\ (9).apk                   # 4.8 MB resource table
 ~/me/code/rust/ZeroBot/waifuhost-apk/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
