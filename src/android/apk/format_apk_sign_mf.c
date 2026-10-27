@@ -47,11 +47,13 @@ int apk_is_signature_file(const char *name) {
     return 0;
 }
 
-char* generate_manifest(zip_archive *za, size_t *out_len) {
+char* generate_manifest(zip_archive *za, size_t *out_len, int use_sha256) {
     int num_entries = zip_get_num_entries(za);
     size_t buf_cap = 256 + num_entries * 256;
     char *manifest = malloc(buf_cap);
     if (!manifest) return NULL;
+    const char *attr = use_sha256 ? "SHA-256-Digest" : "SHA1-Digest";
+    size_t hash_len = use_sha256 ? 32 : 20;
 
     strcpy(manifest, "Manifest-Version: 1.0\r\nBuilt-By: Agent-X\r\n\r\n");
     size_t len = strlen(manifest);
@@ -69,15 +71,16 @@ char* generate_manifest(zip_archive *za, size_t *out_len) {
         void *data = zip_extract_entry(za, i, &size);
         if (!data) continue;
 
-        uint8_t hash[20];
-        sha1(data, size, hash);
+        uint8_t hash[32];
+        if (use_sha256) sha256(data, size, hash);
+        else sha1(data, size, hash);
         free(data);
 
         size_t b64_len = 0;
-        char *b64 = base64_encode(hash, 20, &b64_len);
+        char *b64 = base64_encode(hash, hash_len, &b64_len);
 
         int written = snprintf(manifest + len, buf_cap - len,
-                               "Name: %s\r\nSHA1-Digest: %s\r\n\r\n", name, b64);
+                               "Name: %s\r\n%s: %s\r\n\r\n", name, attr, b64);
         if (written > 0) len += written;
         free(b64);
     }
@@ -85,17 +88,60 @@ char* generate_manifest(zip_archive *za, size_t *out_len) {
     return manifest;
 }
 
+int apk_v1_use_sha256(zip_archive *za) {
+    // Digest choice mirrors apksigner (build-tools 35 probes, issue #30):
+    // SHA-256 iff minSdk >= 18.  No manifest means a JAR-like input only
+    // jarsigner will read -> SHA-256; anything unreadable falls back to
+    // SHA-1, which every Android release accepts.
+    int num_entries = zip_get_num_entries(za);
+    const char *name = NULL;
+    for (int i = 0; i < num_entries; i++) {
+        const char *n = zip_get_entry_name(za, i);
+        if (n && strcmp(n, "AndroidManifest.xml") == 0) { name = n; break; }
+    }
+    if (!name) return 1;
+
+    int idx = 0;
+    for (int i = 0; i < num_entries; i++)
+        if (strcmp(zip_get_entry_name(za, i), name) == 0) { idx = i; break; }
+
+    size_t size = 0;
+    void *data = zip_extract_entry(za, idx, &size);
+    if (!data) return 0;
+
+    axml_ctx *ctx = axml_parse(data, size);
+    free(data); // axml_parse copies what it needs (read_axml relies on this too)
+    if (!ctx) return 0;
+
+    int min_sdk = 1; // Android defaults a missing uses-sdk to 1
+    char *xml = axml_get_xml(ctx);
+    if (xml) {
+        const char *p = strstr(xml, "minSdkVersion");
+        if (p) {
+            const char *eq = strchr(p, '=');
+            const char *q = eq ? strchr(eq, '"') : NULL;
+            if (q) min_sdk = atoi(q + 1);
+        }
+    }
+    axml_free(ctx); // frees the xml string with the context
+    return min_sdk >= 18;
+}
+
 // Phase 3: Generate CERT.SF
-char* generate_signature_file(const char *manifest, size_t manifest_len, size_t *out_len, int do_v2, int do_v3) {
+char* generate_signature_file(const char *manifest, size_t manifest_len, size_t *out_len, int do_v2, int do_v3, int use_sha256) {
     size_t buf_cap = manifest_len + 512;
     char *sf = malloc(buf_cap);
     if (!sf) return NULL;
+    const char *attr = use_sha256 ? "SHA-256-Digest" : "SHA1-Digest";
+    const char *main_attr = use_sha256 ? "SHA-256-Digest-Manifest" : "SHA1-Digest-Manifest";
+    size_t hash_len = use_sha256 ? 32 : 20;
 
     // Hash the entire manifest
-    uint8_t man_hash[20];
-    sha1(manifest, manifest_len, man_hash);
+    uint8_t man_hash[32];
+    if (use_sha256) sha256(manifest, manifest_len, man_hash);
+    else sha1(manifest, manifest_len, man_hash);
     size_t b64_len = 0;
-    char *man_b64 = base64_encode(man_hash, 20, &b64_len);
+    char *man_b64 = base64_encode(man_hash, hash_len, &b64_len);
 
     strcpy(sf, "Signature-Version: 1.0\r\nCreated-By: Agent-X\r\n");
     if (do_v2 && do_v3) {
@@ -107,12 +153,12 @@ char* generate_signature_file(const char *manifest, size_t manifest_len, size_t 
     }
     size_t len = strlen(sf);
 
-    len += snprintf(sf + len, buf_cap - len, "SHA1-Digest-Manifest: %s\r\n\r\n", man_b64);
+    len += snprintf(sf + len, buf_cap - len, "%s: %s\r\n\r\n", main_attr, man_b64);
     free(man_b64);
 
     // Parse the manifest line by line to hash individual sections
     // A section in MANIFEST.MF looks like:
-    // Name: AndroidManifest.xml\r\nSHA1-Digest: ...\r\n\r\n
+    // Name: AndroidManifest.xml\r\nSHA-256-Digest: ...\r\n\r\n
     // We need to hash exactly this string (including \r\n\r\n)
 
     const char *p = strstr(manifest, "Name: ");
@@ -122,10 +168,11 @@ char* generate_signature_file(const char *manifest, size_t manifest_len, size_t 
         end += 4; // Include the \r\n\r\n
 
         size_t section_len = end - p;
-        uint8_t sec_hash[20];
-        sha1(p, section_len, sec_hash);
+        uint8_t sec_hash[32];
+        if (use_sha256) sha256(p, section_len, sec_hash);
+        else sha1(p, section_len, sec_hash);
 
-        char *sec_b64 = base64_encode(sec_hash, 20, &b64_len);
+        char *sec_b64 = base64_encode(sec_hash, hash_len, &b64_len);
 
         // Extract the name to write to SF
         const char *nl = strstr(p, "\r\n");
@@ -135,7 +182,7 @@ char* generate_signature_file(const char *manifest, size_t manifest_len, size_t 
             strncpy(name_line, p, name_line_len);
         }
 
-        len += snprintf(sf + len, buf_cap - len, "%s\r\nSHA1-Digest: %s\r\n\r\n", name_line, sec_b64);
+        len += snprintf(sf + len, buf_cap - len, "%s\r\n%s: %s\r\n\r\n", name_line, attr, sec_b64);
         free(sec_b64);
 
         p = strstr(end, "Name: ");

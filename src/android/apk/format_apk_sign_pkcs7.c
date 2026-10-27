@@ -96,12 +96,15 @@ static void put_cont(uint8_t **p, uint8_t tag, size_t len) { put_len(p, len); pu
 #include "cert_der.h"
 
 // Phase 4: Generate CERT.RSA (PKCS#7 block)
-char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const uint8_t *custom_cert, uint32_t custom_cert_len, size_t *out_len) {
-    uint8_t sf_hash[20];
-    sha1(sf_data, sf_len, sf_hash);
+char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const uint8_t *custom_cert, uint32_t custom_cert_len, size_t *out_len, int use_sha256) {
+    uint8_t sf_hash[32];
+    if (use_sha256) sha256(sf_data, sf_len, sf_hash);
+    else sha1(sf_data, sf_len, sf_hash);
 
     uint8_t signature[256];
-    if (rsa_sign(key, sf_hash, signature) != 0) {
+    int rc = use_sha256 ? rsa_sign_sha256(key, sf_hash, signature)
+                        : rsa_sign(key, sf_hash, signature);
+    if (rc != 0) {
         return NULL;
     }
 
@@ -114,6 +117,14 @@ char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const 
         return NULL;
     }
 
+    // digestAlgorithm of the SignedData SET and of the SignerInfo:
+    // 1.3.14.3.2.26 (SHA-1) or 2.16.840.1.101.3.4.2.1 (SHA-256), both
+    // wrapped in a SEQUENCE with the mandatory NULL parameter.
+    static const uint8_t sha1_alg[] = {0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00};
+    static const uint8_t sha256_alg[] = {0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00};
+    const uint8_t *digest_alg = use_sha256 ? sha256_alg : sha1_alg;
+    size_t digest_alg_len = use_sha256 ? sizeof(sha256_alg) : sizeof(sha1_alg);
+
     uint8_t *buf = malloc(4096 + cert_len);
     if (!buf) return NULL;
     uint8_t *p = buf + 4096 + cert_len - 1;
@@ -122,13 +133,12 @@ char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const 
     // signature: OCTET STRING
     put_bytes(&p, signature, 256); put_len(&p, 256); put_byte(&p, 0x04);
 
-    // signatureAlgorithm: rsaEncryption
+    // digestEncryptionAlgorithm: rsaEncryption
     uint8_t rsa_alg[] = {0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00};
     put_bytes(&p, rsa_alg, sizeof(rsa_alg)); put_seq(&p, sizeof(rsa_alg));
 
-    // digestAlgorithm: sha1
-    uint8_t sha1_alg[] = {0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00};
-    put_bytes(&p, sha1_alg, sizeof(sha1_alg)); put_seq(&p, sizeof(sha1_alg));
+    // digestAlgorithm
+    put_bytes(&p, digest_alg, digest_alg_len); put_seq(&p, digest_alg_len);
 
     // issuerAndSerialNumber
     uint8_t *is_end = p;
@@ -156,7 +166,7 @@ char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const 
 
     // --- digestAlgorithms SET ---
     uint8_t *da_end = p;
-    put_bytes(&p, sha1_alg, sizeof(sha1_alg)); put_seq(&p, sizeof(sha1_alg));
+    put_bytes(&p, digest_alg, digest_alg_len); put_seq(&p, digest_alg_len);
     put_set(&p, da_end - p);
 
     // version 1

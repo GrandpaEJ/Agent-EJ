@@ -34,23 +34,27 @@ int apk_sign_v1(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2
         return -1;
     }
 
+    // Digest mirrors apksigner's choice (issue #30): SHA-256 for
+    // minSdk >= 18, SHA-1 below, so old devices can still verify.
+    int use_sha256 = apk_v1_use_sha256(za);
+
     // Generate Signature Files
     size_t mf_len = 0;
-    char *mf_data = generate_manifest(za, &mf_len);
+    char *mf_data = generate_manifest(za, &mf_len, use_sha256);
     if (!mf_data) {
         printf("Failed to generate MANIFEST.MF\n");
         zip_close(za); zip_writer_close(zw); return -1;
     }
 
     size_t sf_len = 0;
-    char *sf_data = generate_signature_file(mf_data, mf_len, &sf_len, do_v2, do_v3);
+    char *sf_data = generate_signature_file(mf_data, mf_len, &sf_len, do_v2, do_v3, use_sha256);
     if (!sf_data) {
         printf("Failed to generate CERT.SF\n");
         free(mf_data); zip_close(za); zip_writer_close(zw); return -1;
     }
 
     size_t rsa_len = 0;
-    char *rsa_data = generate_cert_rsa(sf_data, sf_len, key, custom_cert, custom_cert_len, &rsa_len);
+    char *rsa_data = generate_cert_rsa(sf_data, sf_len, key, custom_cert, custom_cert_len, &rsa_len, use_sha256);
     if (!rsa_data) {
         printf("Failed to generate CERT.RSA\n");
         free(mf_data); free(sf_data); zip_close(za); zip_writer_close(zw); return -1;
