@@ -1,6 +1,8 @@
 # Agent-EJ — Handoff (after the release of v0.9.0)
 
 **Repo:** `GrandpaEJ/Agent-EJ` · **Branch:** `main` (= `origin/main`) at `21f6f89` = release **v0.9.0**, tag pushed.
+**Name:** the project was renamed **Agent-X → Agent-EJ** (repo, URL, binary `agent-ej`, all docs) after v0.9.0; GitHub 301-redirects the old URL. The **local clone is still `…/c-lang/Agent-X`** — renaming the cwd was deferred, see §7 item 7.
+
 **Status:** **Every open issue is closed** (#5 #7 #8 #13 #22 #24 #25 #26 #28 #30). Nothing is in progress; no branch is unpushed.
 
 The previous handoff's "next steps" are settled:
@@ -267,7 +269,7 @@ byte-identity                 → 16/16 real APKs re-encode byte for byte throug
 ### Full regression recipe
 
 ```bash
-cd /home/grandpa/me/code/c-lang/Agent-EJ
+cd /home/grandpa/me/code/c-lang/Agent-X   # local clone NOT renamed yet, see §7 item 7
 rm -rf .zig-cache && make clean && make release          # never parallel with a test run
 for t in t1 t2 t3 t4 ann ann2 ann3 ann4 bulk cls big huge p2 p3 p4 mref onlymethods \
          fieldkey x_field_arrow_nocolon x_enum_qmark x_method_arrow_noparen proto70 \
@@ -314,6 +316,7 @@ Then rebuild `make release` for the real binary. Warning count only from a cold 
 | 4 | `smali_pool.c` `comp_field_key`/`comp_method_key` strict-weak-ordering (LOW, PR review finding) | open |
 | 5 | The 53 pre-existing warnings (files untouched so far) | open |
 | 6 | Delete the kept branch: `git push origin --delete fix/open-issues-13-25-24-5-22-8` (its commits are cited in issue comments; decide when those comments no longer need them) | open |
+| 7 | **Rename the local clone** `…/c-lang/Agent-X` → `Agent-EJ`. Deferred: renaming the cwd mid-session breaks every absolute path used by the running session, so do it from a fresh shell, then update the two `cd` lines in §6. Everything else (repo, remote, binary, docs) is renamed. | open |
 
 Suggested order: **3 / 4 / 5** as refactors (no open feature work remains), 6 whenever.
 The only feature-shaped gap left in the APK pipeline is the reverse of §5.5: the
@@ -325,7 +328,8 @@ v0.9.0, worth an issue if it ever matters.
 
 ```bash
 # build (cold cache for real warnings)
-cd /home/grandpa/me/code/c-lang/Agent-EJ && rm -rf .zig-cache && make clean && make release
+cd /home/grandpa/me/code/c-lang/Agent-X   # local clone NOT renamed yet, see §7 item 7
+rm -rf .zig-cache && make clean && make release
 
 # oracles
 /home/grandpa/Android/Sdk/build-tools/35.0.0/apksigner    # APK oracle (v1 digest probes, verify)

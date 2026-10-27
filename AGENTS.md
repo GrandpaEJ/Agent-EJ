@@ -145,7 +145,7 @@ Every single code change, refactoring step, or feature implementation **must foc
 
 ### 6.2. Git & Semantic Versioning Rules
 * **Track with Git**: All changes must be cleanly staged and committed to git.
-* **Changelog Updates**: Every release and major update must be documented in [CHANGELOG.md](file:///home/grandpa/me/code/zig/agent-ej/CHANGELOG.md) following Keep a Changelog standards.
+* **Changelog Updates**: Every release and major update must be documented in [CHANGELOG.md](CHANGELOG.md) following Keep a Changelog standards.
 * **Semantic Versioning**: Adhere strictly to the following versioning format:
   * **1.x.x** : [Lts] (Long Term Support / Major Architectural Updates)
   * **x.n.x** : [new feat] (New features and backward-compatible additions)

@@ -226,7 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.1] - 2026-06-01
 
 ### Changed
-- Added strict memory-first coding guidelines and semantic version tracking rule definitions to [AGENT.md](file:///home/grandpa/me/code/zig/agent-ej/AGENT.md).
+- Added strict memory-first coding guidelines and semantic version tracking rule definitions to [AGENTS.md](AGENTS.md).
 
 ---
 
