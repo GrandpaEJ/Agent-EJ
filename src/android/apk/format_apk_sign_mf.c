@@ -4,8 +4,49 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> // strncasecmp
 
 // Phase 2: Generate MANIFEST.MF
+
+/* Mirrors JDK SignatureFileVerifier.isSigningRelated(): files that live
+ * directly inside META-INF/ (case-insensitive) and are MANIFEST.MF, end
+ * with .SF/.DSA/.RSA/.EC (case-insensitive), or are SIG-<name>.<1-3 alnum>
+ * legacy blocks.  Everything else under META-INF (services/, *.version,
+ * build metadata) is regular content that must be signed like any file. */
+int apk_is_signature_file(const char *name) {
+    if (strncasecmp(name, "META-INF/", 9) != 0) return 0;
+    if (strchr(name + 9, '/')) return 0; // only directly inside META-INF/
+
+    const char *base = name + 9;
+    size_t n = strlen(base);
+    if (n == 11 && strncasecmp(base, "MANIFEST.MF", 11) == 0) return 1;
+    if (n >= 3) {
+        if (strncasecmp(base + n - 3, ".SF", 3) == 0) return 1;
+        if (strncasecmp(base + n - 3, ".EC", 3) == 0) return 1;
+    }
+    if (n >= 4) {
+        if (strncasecmp(base + n - 4, ".DSA", 4) == 0) return 1;
+        if (strncasecmp(base + n - 4, ".RSA", 4) == 0) return 1;
+    }
+    if (n > 4 && strncasecmp(base, "SIG-", 4) == 0) {
+        const char *dot = strrchr(base, '.');
+        if (dot && dot > base + 4) {
+            size_t el = strlen(dot + 1);
+            if (el >= 1 && el <= 3) {
+                size_t i;
+                for (i = 0; i < el; i++) {
+                    char c = dot[1 + i];
+                    if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+                          (c >= 'a' && c <= 'z')))
+                        return 0;
+                }
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 char* generate_manifest(zip_archive *za, size_t *out_len) {
     int num_entries = zip_get_num_entries(za);
     size_t buf_cap = 256 + num_entries * 256;
@@ -18,9 +59,11 @@ char* generate_manifest(zip_archive *za, size_t *out_len) {
     for (int i = 0; i < num_entries; i++) {
         const char *name = zip_get_entry_name(za, i);
         if (!name || strlen(name) == 0) continue;
-        // Skip directories and existing META-INF files
+        // Skip directories and the signature files themselves; META-INF
+        // content files are signed like every other entry (issue #30: they
+        // used to be dropped from the output APK altogether).
         if (name[strlen(name) - 1] == '/') continue;
-        if (strncmp(name, "META-INF/", 9) == 0) continue;
+        if (apk_is_signature_file(name)) continue;
 
         size_t size = 0;
         void *data = zip_extract_entry(za, i, &size);

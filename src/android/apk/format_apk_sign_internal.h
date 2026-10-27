@@ -25,6 +25,13 @@ char* generate_manifest(zip_archive *za, size_t *out_len);
 char* generate_signature_file(const char *manifest, size_t manifest_len,
                               size_t *out_len, int do_v2, int do_v3);
 
+/* 1 for the files the JAR spec calls signature-related: MANIFEST.MF, the
+ * .SF/.DSA/.RSA/.EC blocks and SIG-* legacy blocks directly under META-INF/
+ * (case-insensitive), mirrored from JDK SignatureFileVerifier.
+ * isSigningRelated().  META-INF content files (services/, *.version, ...)
+ * return 0: they are signed like any other entry. */
+int apk_is_signature_file(const char *name);
+
 /* Build the PKCS#7 block (CERT.RSA) over the signature file: the RSA
  * signature of the SF hash plus the signing certificate.  `custom_cert` is
  * used when present, the built-in certificate otherwise.  Returns a buffer
