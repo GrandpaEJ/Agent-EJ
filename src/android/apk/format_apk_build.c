@@ -149,6 +149,10 @@ static int cmp_smali_dirs(const void *a, const void *b) {
 }
 
 int apk_build(const char *src_dir, const char *out_apk, const char *key_path, const char *cert_path) {
+    /* The values tree is compiled back into resources.arsc before anything is
+     * packed, otherwise every edit in res/values would be lost. */
+    apk_recompile_resources(src_dir);
+
     DIR *d = opendir(src_dir);
     if (!d) return -1;
     char **dex_files = NULL;

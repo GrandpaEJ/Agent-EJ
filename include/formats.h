@@ -41,6 +41,14 @@ uint8_t *arsc_build(arsc_ctx *ctx, size_t *out_size);
 void arsc_free(arsc_ctx *ctx);
 int arsc_dump_toml(const char *arsc_path, const char *toml_path);
 int arsc_compile_toml(const char *arsc_path, const char *toml_path, const char *out_arsc);
+/* Compiles the decoded res values tree below `res_dir` back into `arsc_path`
+ * and writes the result to `out_arsc`, so an edit made in one of the XML files
+ * of a decoded values directory reaches the rebuilt APK.  Entries the tree
+ * does not mention keep their original value.  The two counters are optional:
+ * *out_changed counts entries that took a new value, *out_skipped counts
+ * values that could not be represented and were left alone. */
+int arsc_compile_xml(const char *arsc_path, const char *res_dir,
+                     const char *out_arsc, int *out_changed, int *out_skipped);
 const char *arsc_lookup_id(arsc_ctx *ctx, uint32_t res_id);
 const char *arsc_get_type_name(arsc_ctx *ctx, uint32_t pkg_id, uint8_t type_id);
 uint32_t arsc_reverse_lookup(arsc_ctx *ctx, const char *type_name, const char *key_name);
@@ -81,5 +89,10 @@ int adb_pull_file(const char *remote_path, const char *local_path);
 int apk_decode(const char *apk_path, const char *out_dir);
 int apk_build(const char *src_dir, const char *out_apk, const char *key_path, const char *cert_path);
 int arsc_decode_apk(const char *out_dir);
+/* Counterpart of arsc_decode_apk(): regenerates resources.arsc from the res
+ * values tree below src_dir so that an edit made in one of those files reaches
+ * the rebuilt APK.  Returns 0 when the table was replaced or there was nothing
+ * to recompile, -1 when the original table was kept. */
+int apk_recompile_resources(const char *src_dir);
 
 #endif
