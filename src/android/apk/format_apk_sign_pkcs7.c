@@ -101,6 +101,14 @@ char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const 
     if (use_sha256) sha256(sf_data, sf_len, sf_hash);
     else sha1(sf_data, sf_len, sf_hash);
 
+    // The encryptedDigest must be exactly the modulus length: rsa_sign
+    // fills key->bits/8 bytes and leaves the rest of the buffer untouched,
+    // so embedding a fixed 256 broke every non-2048-bit key — apksigner
+    // reported "Bad signature length: got 256 but was expecting 128" for
+    // a 1024-bit key (issue #30; v2/v3 got the same fix in #13).
+    int sig_len = key->bits / 8;
+    if (sig_len <= 0 || sig_len > 256) return NULL;
+
     uint8_t signature[256];
     int rc = use_sha256 ? rsa_sign_sha256(key, sf_hash, signature)
                         : rsa_sign(key, sf_hash, signature);
@@ -130,8 +138,8 @@ char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const 
     uint8_t *p = buf + 4096 + cert_len - 1;
     uint8_t *end = p;
 
-    // signature: OCTET STRING
-    put_bytes(&p, signature, 256); put_len(&p, 256); put_byte(&p, 0x04);
+    // signature: OCTET STRING, modulus-sized
+    put_bytes(&p, signature, (size_t)sig_len); put_len(&p, (size_t)sig_len); put_byte(&p, 0x04);
 
     // digestEncryptionAlgorithm: rsaEncryption
     uint8_t rsa_alg[] = {0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00};
