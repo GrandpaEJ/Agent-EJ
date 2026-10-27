@@ -189,3 +189,30 @@ char* execute_arsc_info(cJSON* args) {
     arsc_model_free(model);
     return out;
 }
+
+/* Compiles the res values tree a decode produced back into a resources.arsc.
+ * This is the half of the rebuild that used to be missing: build_apk copied
+ * the original table, so an edit in one of the decoded values files never
+ * reached the APK. */
+char* execute_arsc_compile(cJSON* args) {
+    cJSON *arsc_obj = cJSON_GetObjectItem(args, "arsc");
+    cJSON *dir_obj = cJSON_GetObjectItem(args, "res_dir");
+    cJSON *out_obj = cJSON_GetObjectItem(args, "out");
+    if (!arsc_obj || !cJSON_IsString(arsc_obj) ||
+        !dir_obj || !cJSON_IsString(dir_obj) ||
+        !out_obj || !cJSON_IsString(out_obj)) {
+        return strdup("{\"error\": \"Missing arsc, res_dir or out\"}");
+    }
+
+    int changed = 0, skipped = 0;
+    if (arsc_compile_xml(arsc_obj->valuestring, dir_obj->valuestring,
+                         out_obj->valuestring, &changed, &skipped) != 0) {
+        return strdup("{\"error\": \"Failed to compile the res values tree\"}");
+    }
+
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+             "{\"status\": \"success\", \"output\": \"%s\", \"changed\": %d, \"skipped\": %d}",
+             out_obj->valuestring, changed, skipped);
+    return strdup(buf);
+}

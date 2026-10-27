@@ -33,6 +33,7 @@ char* execute_smali_flow(cJSON* args);
 char* execute_zipalign(cJSON* args);
 char* execute_arsc_encode(cJSON* args);
 char* execute_arsc_info(cJSON* args);
+char* execute_arsc_compile(cJSON* args);
 
 // Helpers
 int find_skill_file(const char* dir_path, const char* name, char* out_path, size_t out_len);
