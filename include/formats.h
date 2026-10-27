@@ -67,9 +67,6 @@ char* smali_flow_generate(smali_method_def_t *method, const char *method_name);
 #define APK_SIGN_ERR_CERT_MISMATCH (-2)
 int apk_sign_v1(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len);
 int apk_sign_v2_v3(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len);
-char* generate_manifest(struct zip_archive *za, size_t *out_len);
-char* generate_signature_file(const char *manifest, size_t manifest_len, size_t *out_len, int do_v2, int do_v3);
-char* generate_cert_rsa(const char *sf_data, size_t sf_len, rsa_key *key, const uint8_t *custom_cert, uint32_t custom_cert_len, size_t *out_len);
 char *apk_analyze(const char *path);
 void apk_free(char *result);
 
