@@ -4,7 +4,7 @@
 #include <string.h>
 
 static void write_log(const char* level, const char* event, const char* details) {
-    FILE* fp = fopen("agent-x.log", "a");
+    FILE* fp = fopen("agent-ej.log", "a");
     if (!fp) return;
     
     time_t rawtime;

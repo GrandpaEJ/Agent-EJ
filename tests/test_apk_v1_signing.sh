@@ -19,13 +19,13 @@
 # jarsigner warnings there are policy, not a defect (proven against real
 # jarsigner output in issue #30).
 #
-# Usage: tests/test_apk_v1_signing.sh [path-to-agent-x]
+# Usage: tests/test_apk_v1_signing.sh [path-to-agent-ej]
 
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AGENTX="${1:-$ROOT/agent-x}"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/agent-x-v1test.XXXXXX")"
+AGENTX="${1:-$ROOT/agent-ej}"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/agent-ej-v1test.XXXXXX")"
 if [ -n "${APKSIGNER:-}" ]; then
     # Explicitly requested: honour it, otherwise there is no oracle available.
     [ -x "$APKSIGNER" ] || APKSIGNER=""
@@ -58,7 +58,7 @@ trap cleanup EXIT
 printf '== APK v1 signing test (issue #30) ==\n'
 
 if [ ! -x "$AGENTX" ]; then
-    printf 'agent-x binary not found at %s - run "make release" first\n' "$AGENTX" >&2
+    printf 'agent-ej binary not found at %s - run "make release" first\n' "$AGENTX" >&2
     exit 2
 fi
 for tool in zip unzip openssl; do
@@ -70,13 +70,13 @@ done
 openssl genrsa -traditional -out "$WORK/key.pem" 2048 >/dev/null 2>&1 || {
     printf 'openssl genrsa failed\n' >&2; exit 2; }
 openssl pkcs8 -topk8 -nocrypt -in "$WORK/key.pem" -out "$WORK/key_p8.pem" >/dev/null 2>&1
-openssl req -new -x509 -key "$WORK/key.pem" -subj "/CN=Agent-X V1 Test" \
+openssl req -new -x509 -key "$WORK/key.pem" -subj "/CN=Agent-EJ V1 Test" \
     -days 3650 -outform DER -out "$WORK/cert.der" >/dev/null 2>&1
 
 # A 1024-bit key exposes the encryptedDigest sizing bug.
 openssl genrsa -traditional -out "$WORK/key1024.pem" 1024 >/dev/null 2>&1
 openssl pkcs8 -topk8 -nocrypt -in "$WORK/key1024.pem" -out "$WORK/key1024_p8.pem" >/dev/null 2>&1
-openssl req -new -x509 -key "$WORK/key1024.pem" -subj "/CN=Agent-X V1 Test 1024" \
+openssl req -new -x509 -key "$WORK/key1024.pem" -subj "/CN=Agent-EJ V1 Test 1024" \
     -days 3650 -outform DER -out "$WORK/cert1024.der" >/dev/null 2>&1
 
 # --- fixtures ---------------------------------------------------------------
@@ -89,7 +89,7 @@ make_fixture() { # dir, package, uses-sdk line
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$2">
 $3
-    <application android:label="Agent-X V1 Test" />
+    <application android:label="Agent-EJ V1 Test" />
 </manifest>
 XML
     "$AGENTX" tool axml_assemble src="$1.xml" out="$1/AndroidManifest.xml" >/dev/null 2>&1 || {

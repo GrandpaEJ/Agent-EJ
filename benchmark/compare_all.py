@@ -109,7 +109,7 @@ def compare_all(dex1, dex2):
             w1 = [f"{w:04x}" for w in struct.unpack(f'<{isz1}H', insns1)]
             w2 = [f"{w:04x}" for w in struct.unpack(f'<{isz2}H', insns2)]
             print(f"  smali.jar: {' '.join(w1)}")
-            print(f"  agent-x  : {' '.join(w2)}")
+            print(f"  agent-ej  : {' '.join(w2)}")
             print()
             if diff_count > 10:
                 print("Too many differences, stopping...")

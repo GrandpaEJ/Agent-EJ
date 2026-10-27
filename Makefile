@@ -20,7 +20,7 @@ OBJS = $(patsubst src/%,$(OBJ_DIR)/%,$(SRCS:.c=.o))
 CJSON_OBJS = $(patsubst $(VENDOR_DIR)/cJSON/%.c,$(OBJ_DIR)/%.o,$(CJSON_SRCS))
 LINENOISE_OBJS = $(patsubst $(VENDOR_DIR)/linenoise/%.c,$(OBJ_DIR)/%.o,$(LINENOISE_SRCS))
 
-TARGET = agent-x
+TARGET = agent-ej
 
 all: $(TARGET)
 
@@ -41,10 +41,10 @@ $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
 nano:
-	$(CC) $(CFLAGS) -o agent-x-nano $(SRCS) $(CJSON_SRCS) $(LINENOISE_SRCS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o agent-ej-nano $(SRCS) $(CJSON_SRCS) $(LINENOISE_SRCS) $(LDFLAGS)
 
 pico:
-	$(CC) $(CFLAGS) -DPICO_MODE -o agent-x-pico \
+	$(CC) $(CFLAGS) -DPICO_MODE -o agent-ej-pico \
 		src/core/main.c src/core/agent.c src/tools/tool_dispatch.c src/net/http.c src/core/logger.c \
 		$(VENDOR_DIR)/cJSON/cJSON.c $(LDFLAGS)
 
@@ -55,6 +55,6 @@ release: $(TARGET)
 	ls -lh $(TARGET)
 
 clean:
-	rm -rf $(OBJ_DIR) $(TARGET) agent-x-nano agent-x-pico
+	rm -rf $(OBJ_DIR) $(TARGET) agent-ej-nano agent-ej-pico
 
 .PHONY: all clean nano pico

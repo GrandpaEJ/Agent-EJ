@@ -86,7 +86,7 @@ int apk_is_signature_file(const char *name) {
 char* generate_manifest(zip_archive *za, size_t *out_len, int use_sha256) {
     const char *attr = use_sha256 ? "SHA-256-Digest" : "SHA1-Digest";
     size_t hash_len = use_sha256 ? 32 : 20;
-    static const char header[] = "Manifest-Version: 1.0\r\nBuilt-By: Agent-X\r\n\r\n";
+    static const char header[] = "Manifest-Version: 1.0\r\nBuilt-By: Agent-EJ\r\n\r\n";
 
     arsc_buf b;
     arsc_buf_init(&b);
@@ -137,7 +137,7 @@ char* generate_signature_file(const char *manifest, size_t manifest_len, size_t 
     const char *main_attr = use_sha256 ? "SHA-256-Digest-Manifest" : "SHA1-Digest-Manifest";
     size_t hash_len = use_sha256 ? 32 : 20;
 
-    static const char sf_header[] = "Signature-Version: 1.0\r\nCreated-By: Agent-X\r\n";
+    static const char sf_header[] = "Signature-Version: 1.0\r\nCreated-By: Agent-EJ\r\n";
     static const char x_both[]    = "X-Android-APK-Signed: 2, 3\r\n";
     static const char x_v3[]      = "X-Android-APK-Signed: 3\r\n";
     static const char x_v2[]      = "X-Android-APK-Signed: 2\r\n";

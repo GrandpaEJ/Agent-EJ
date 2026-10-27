@@ -1,6 +1,6 @@
-# Contributing to Agent-X
+# Contributing to Agent-EJ
 
-First off, thank you for considering contributing to Agent-X! It's people like you that make Agent-X such a great tool.
+First off, thank you for considering contributing to Agent-EJ! It's people like you that make Agent-EJ such a great tool.
 
 ## Code of Conduct
 
@@ -10,14 +10,14 @@ By participating in this project, you are expected to uphold our Code of Conduct
 
 ### Reporting Bugs
 
-This section guides you through submitting a bug report for Agent-X. Following these guidelines helps maintainers and the community understand your report, reproduce the behavior, and find related reports.
+This section guides you through submitting a bug report for Agent-EJ. Following these guidelines helps maintainers and the community understand your report, reproduce the behavior, and find related reports.
 
 * **Ensure the bug was not already reported** by searching on GitHub under Issues.
 * **If you're unable to find an open issue addressing the problem**, open a new one. Be sure to include a title and clear description, as much relevant information as possible, and a code sample or an executable test case demonstrating the expected behavior that is not occurring.
 
 ### Suggesting Enhancements
 
-This section guides you through submitting an enhancement suggestion for Agent-X, including completely new features and minor improvements to existing functionality. Following these guidelines helps maintainers and the community understand your suggestion and find related suggestions.
+This section guides you through submitting an enhancement suggestion for Agent-EJ, including completely new features and minor improvements to existing functionality. Following these guidelines helps maintainers and the community understand your suggestion and find related suggestions.
 
 * **Open a new issue** with a clear title and description.
 * **Provide specific examples** to demonstrate the steps.

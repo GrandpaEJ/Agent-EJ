@@ -7,7 +7,7 @@
 # the field pool is keyed by the whole reference.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AGENTX="${1:-$ROOT/agent-x}"
+AGENTX="${1:-$ROOT/agent-ej}"
 W="$(mktemp -d /tmp/opencode/anntest.XXXXXX)"
 trap 'rm -rf "$W"' EXIT
 PASS=0; FAIL=0

@@ -1,6 +1,6 @@
-# Agent X Pro Benchmarks
+# Agent EJ Pro Benchmarks
 
-Performance metrics, memory baselines, and footprint audits of Agent X Pro compiled statically under `x86_64-linux-musl` on Debian Linux.
+Performance metrics, memory baselines, and footprint audits of Agent EJ Pro compiled statically under `x86_64-linux-musl` on Debian Linux.
 
 ---
 
@@ -10,10 +10,10 @@ Statically compiled binaries with all symbols stripped, functional dead-code rem
 
 | Target | Executable Size | Included Features |
 | :--- | :--- | :--- |
-| **`agent-x-pico32`** | **58 KiB** | 32-bit x86, POSIX CLI, local temp files, memory store |
-| **`agent-x-pico`** | **80 KiB** | 64-bit x64, POSIX CLI, local temp files, memory store |
-| **`agent-x-nano`** | **98 KiB** | 64-bit x64, Interactive CLI, `linenoise` shell history, memory store |
-| **`agent-x`** | **131 KiB** | 64-bit x64, CLI + Telegram Bot, POSIX Daemonizer, memory store |
+| **`agent-ej-pico32`** | **58 KiB** | 32-bit x86, POSIX CLI, local temp files, memory store |
+| **`agent-ej-pico`** | **80 KiB** | 64-bit x64, POSIX CLI, local temp files, memory store |
+| **`agent-ej-nano`** | **98 KiB** | 64-bit x64, Interactive CLI, `linenoise` shell history, memory store |
+| **`agent-ej`** | **131 KiB** | 64-bit x64, CLI + Telegram Bot, POSIX Daemonizer, memory store |
 
 ---
 
@@ -22,7 +22,7 @@ Statically compiled binaries with all symbols stripped, functional dead-code rem
 Monitored using `/proc/[pid]/status` resident set size (RSS):
 
 * **Architectural Floor (Static libc/BSS mapping)**: **392 KB**
-* **Idle Interactive CLI mode (`agent-x-pico`)**: **412 KB**
+* **Idle Interactive CLI mode (`agent-ej-pico`)**: **412 KB**
 * **Active LLM Processing (69 Tools schema registered)**: **480 KB** 
   *(Includes heap allocations for parsing network HTTP requests and storing temporary JSON nodes using cJSON)*
 * **Background Daemon Running (Telegram Polling)**: **436 KB**
@@ -33,7 +33,7 @@ Monitored using `/proc/[pid]/status` resident set size (RSS):
 
 ## 3. Token & Cost Optimization
 
-To prevent input token bloat, Agent X Pro strips large tool responses older than 3 turns. 
+To prevent input token bloat, Agent EJ Pro strips large tool responses older than 3 turns. 
 
 ### Scenario: Code compilation & Directory Listing
 * User requests file list and reads several files.
@@ -61,5 +61,5 @@ Performance comparison of assembling and disassembling a Dalvik DEX payload cont
 | Implementation | Execution Time | RAM Footprint | JVM/Runtime Requirement |
 | :--- | :--- | :--- | :--- |
 | **`smali.jar` (Official Java)** | ~1,200 ms | ~35 MB | Yes (Java Runtime Env) |
-| **`agent-x smali_assemble`** | **< 20 ms** (60x faster) | **< 800 KB** | **None (Pure Static Native)** |
+| **`agent-ej smali_assemble`** | **< 20 ms** (60x faster) | **< 800 KB** | **None (Pure Static Native)** |
 

@@ -1,4 +1,4 @@
-# Agent X — Reverse Engineering Architecture
+# Agent EJ — Reverse Engineering Architecture
 
 ## Table of Contents
 
@@ -10,14 +10,14 @@
 6. [Module Breakdown](#module-breakdown)
 7. [Signing & Alignment](#signing--alignment)
 8. [Beyond APK — Full RE Suite](#beyond-apk--full-re-suite)
-9. [Integration with Agent X](#integration-with-agent-x)
+9. [Integration with Agent EJ](#integration-with-agent-ej)
 10. [Appendix: Smali Reference](#appendix-smali-reference)
 
 ---
 
 ## Overview
 
-Agent X will become a **native, zero-dependency reverse engineering suite** written in C11. No Java. No Python. No external tools. Everything compiles into a single static binary (~500 KB target).
+Agent EJ will become a **native, zero-dependency reverse engineering suite** written in C11. No Java. No Python. No external tools. Everything compiles into a single static binary (~500 KB target).
 
 ### Philosophy
 
@@ -420,7 +420,7 @@ For RE we care about:
 ### Architecture
 
 ```
-agent-x binary
+agent-ej binary
 │
 ├── src/
 │   ├── main.c              (entry point, CLI dispatch)
@@ -859,7 +859,7 @@ int zipalign(const char* in_apk, const char* out_apk, int alignment);
 |---|---|---|
 | Binary size | +50 KB | +500 KB |
 | Dependencies | None | None (Capstone is C too) |
-| Build complexity | Part of agent-x | Separate library |
+| Build complexity | Part of agent-ej | Separate library |
 | Updates | We maintain | Active community |
 | Control | Full | Full |
 
@@ -889,7 +889,7 @@ This is by far the hardest component. A JADX-level decompiler in C would be ~20,
 
 ---
 
-## Integration with Agent X
+## Integration with Agent EJ
 
 ### New Tools (registered in `tools.c`)
 
@@ -1047,4 +1047,4 @@ Agent:
 
 ---
 
-*This document is a living reference. As agent-x's RE capabilities grow, each module here becomes a real `.c` file in `src/`.*
+*This document is a living reference. As agent-ej's RE capabilities grow, each module here becomes a real `.c` file in `src/`.*

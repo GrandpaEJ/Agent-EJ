@@ -15,11 +15,11 @@
 # Real APKs are exercised as well when they are given:
 #   ARSC_TEST_APKS="/path/one.apk /path/two.apk" ./tests/test_arsc_compile_xml.sh
 #
-# Usage: tests/test_arsc_compile_xml.sh [path-to-agent-x]
+# Usage: tests/test_arsc_compile_xml.sh [path-to-agent-ej]
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AGENTX="${1:-$ROOT/agent-x}"
+AGENTX="${1:-$ROOT/agent-ej}"
 W="$(mktemp -d /tmp/opencode/arscxml.XXXXXX)"
 trap 'rm -rf "$W"' EXIT
 PASS=0; FAIL=0
@@ -32,7 +32,7 @@ echo "== resource table compiler (XML -> resources.arsc) =="
 for tool in python3 unzip cmp; do
     command -v "$tool" >/dev/null || { echo "$tool not found"; exit 2; }
 done
-[ -x "$AGENTX" ] || { echo "agent-x not found at $AGENTX - run make release first"; exit 2; }
+[ -x "$AGENTX" ] || { echo "agent-ej not found at $AGENTX - run make release first"; exit 2; }
 
 # --- the fixture and the res tree that describes it -------------------------
 FIX="$W/fixture.arsc"

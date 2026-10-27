@@ -40,7 +40,7 @@ char* http_post_json(const char* url, const char* auth_header, const char* json_
     char temp_filename[1024];
     const char* tmpdir = getenv("TMPDIR");
     if (!tmpdir) tmpdir = ".";
-    snprintf(temp_filename, sizeof(temp_filename), "%s/agent-x-XXXXXX", tmpdir);
+    snprintf(temp_filename, sizeof(temp_filename), "%s/agent-ej-XXXXXX", tmpdir);
     
     int fd = mkstemp(temp_filename);
     if (fd < 0) return NULL;

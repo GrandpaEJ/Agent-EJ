@@ -58,7 +58,7 @@ void agent_run_telegram(void) {
         return;
     }
     
-    printf("Agent X Telegram Mode started...\n");
+    printf("Agent EJ Telegram Mode started...\n");
     
     long last_update_id = 0;
     

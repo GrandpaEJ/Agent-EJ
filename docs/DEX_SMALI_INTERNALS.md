@@ -1,6 +1,6 @@
 # DEX & Smali Engine Internals (dex2smali / smali2dex)
 
-Agent-X features a completely native, zero-dependency engine for translating between compiled Android DEX bytecode (`classes.dex`) and human-readable Smali assembly.
+Agent-EJ features a completely native, zero-dependency engine for translating between compiled Android DEX bytecode (`classes.dex`) and human-readable Smali assembly.
 
 This document outlines the architecture, memory management, and technical approach behind both the Disassembler (`dex2smali`) and Assembler (`smali2dex`).
 
@@ -65,7 +65,7 @@ The assembler works in exactly the reverse order but is significantly more compl
 
 ## 4. Multidex Support
 
-Agent-X supports automatic multidex resolution.
+Agent-EJ supports automatic multidex resolution.
 *   **Decoding:** Multiple `.dex` files (`classes.dex`, `classes2.dex`) are automatically extracted into distinct folders like `smali/` and `smali_classes2/`.
 *   **Building:** The compiler will iterate through all `smali*` directories inside the output folder and independently compile them back into their respective `classesN.dex` binaries.
 
@@ -81,32 +81,32 @@ Agent-X supports automatic multidex resolution.
 
 ## 6. Usage Guide (Basic to Advanced)
 
-Agent-X exposes these native engines directly through its `tool` CLI. Here is how to use them, from basic operations to advanced reverse-engineering techniques.
+Agent-EJ exposes these native engines directly through its `tool` CLI. Here is how to use them, from basic operations to advanced reverse-engineering techniques.
 
 ### Basic Usages
 
 **1. Full APK Decode (Apktool equivalent)**
 Decodes an entire APK, parses the `AndroidManifest.xml`, and disassembles all `classes.dex` files into organized `smali/` and `smali_classesN/` directories.
 ```bash
-./agent-x tool decode_apk path="target.apk" out_dir="/tmp/decoded_apk"
+./agent-ej tool decode_apk path="target.apk" out_dir="/tmp/decoded_apk"
 ```
 
 **2. Full APK Build & Sign**
 Compiles all `smali*` directories back into `classesN.dex` files, repacks the APK, aligns it (`4-byte` zipalign), and signs it using the provided RSA key.
 ```bash
-./agent-x tool build_apk src_dir="/tmp/decoded_apk" out_apk="rebuilt.apk" key_path="testkey.pem"
+./agent-ej tool build_apk src_dir="/tmp/decoded_apk" out_apk="rebuilt.apk" key_path="testkey.pem"
 ```
 
 **3. Assemble Smali to DEX (smali2dex)**
 Compile a directory of `.smali` files into a single `.dex` binary.
 ```bash
-./agent-x tool smali_assemble src_dir="/tmp/smali_source" out_dex="classes.dex"
+./agent-ej tool smali_assemble src_dir="/tmp/smali_source" out_dex="classes.dex"
 ```
 
 **4. Disassemble DEX to Smali (dex2smali)**
 Disassemble an entire `.dex` file into a directory of `.smali` source files.
 ```bash
-./agent-x tool read_dex path="classes.dex" out_dir="/tmp/smali_out"
+./agent-ej tool read_dex path="classes.dex" out_dir="/tmp/smali_out"
 ```
 
 ### Advanced Usages
@@ -115,18 +115,18 @@ Disassemble an entire `.dex` file into a directory of `.smali` source files.
 If you are debugging the engine or just need to inspect a single class without dumping the entire DEX file, you can target it by its `class_def` index.
 ```bash
 # Disassemble the class at index 0
-./agent-x tool disasm_dex path="classes.dex" class=0
+./agent-ej tool disasm_dex path="classes.dex" class=0
 ```
 
 **2. Raw DEX Header & Table Dump**
 To analyze the binary structure of a DEX file (Header checksums, Map offsets, String pool sizes) without converting it to Smali.
 ```bash
 # Omitting the 'out_dir' argument triggers raw structural dump
-./agent-x tool read_dex path="classes.dex"
+./agent-ej tool read_dex path="classes.dex"
 ```
 
 **3. Custom APK Resigning Pipeline**
 If you manually modified an aligned APK and just want to resign it natively with a custom certificate/key pair:
 ```bash
-./agent-x tool resign_apk path="aligned.apk" key="mykey.pem" cert="mycert.x509.pem"
+./agent-ej tool resign_apk path="aligned.apk" key="mykey.pem" cert="mycert.x509.pem"
 ```
