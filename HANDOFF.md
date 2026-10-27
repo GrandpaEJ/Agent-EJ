@@ -1,352 +1,216 @@
-# Agent-X — Handoff (after the release of v0.8.3)
+# Agent-X — Handoff (after the release of v0.8.4)
 
-**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `main` (= `origin/main`) at `6834c06`,
-tag **`v0.8.3`** pushed.
-**Released:** **v0.8.3** — PR #29 (`b98d6cd`) merged, release commit `6834c06`,
-tag `v0.8.3` pushed.
-**Status:** **Every issue is closed** (#5 #7 #8 #13 #22 #24 #25 #26 #28). One new
-issue is open: **#30** — the v1 (JAR) signing path (SHA-1 + nonexistent signed
-entries), found during #13 and verified again before opening.
+**Repo:** `GrandpaEJ/Agent-X` · **Branch:** `main` (= `origin/main`) at `228ca91` = release **v0.8.4**, tag pushed.
+**Status:** **Every open issue is closed** (#5 #7 #8 #13 #22 #24 #25 #26 #28 #30). Nothing is in progress; no branch is unpushed.
 
-**Branch `fix/issue-28-annotation-enum` was deleted** on merge (local + remote).
-**Branch `fix/open-issues-13-25-24-5-22-8` was kept** (not deleted) so that the
-individual commits cited in the issue comments stay reachable. It can go:
-`git push origin --delete fix/open-issues-13-25-24-5-22-8`.
+The previous handoff's "next steps" are settled: the **v1 (JAR) signing path** work (issue #30) shipped as v0.8.4 via PR #31 (squash `c8dbd65`). Remaining items are §7 below.
 
 ---
 
 ## 0. Read this first
 
-- Repo rules (`AGENTS.md`): **featwise commits**, **Small File Rule** (max 250 LOC
-  per `.c`), C11, no new deps, memory-first, semantic versioning + `git tag` per release.
+- Repo rules (`AGENTS.md`): **featwise commits**, **Small File Rule** (max 250 LOC per `.c`), C11, no new deps, memory-first, semantic versioning + `git tag` per release.
 - Evidence protocol: **every claim must come from a command run in-session.**
 - ⚠️ **`make clean` before every build** — a stale object breaks the link.
 - ⚠️ **Never commit build artifacts** (`agent-x`, `obj/`) — `.gitignore` covers them.
-- ⚠️ **Never commit `CHANGELOG.md` edits from a subagent** — the lead edits it centrally.
-- ⚠️ **The zig cache hides compiler diagnostics.** `zig cc` replays cached objects
-  without re-emitting their warnings, so an incremental build reports "0 warnings"
-  even when the code has 53. **Always `rm -rf .zig-cache` before counting
-  warnings.** The true baseline is **53 pre-existing warnings** (§6.4); none of
-  them come from the files this work touched. Re-confirmed on v0.8.3: **53**.
-- ⚠️ **The release-commit pattern**: a release commit only inserts
-  `---` + `## [x.y.z] - <date>` after `## [Unreleased]` in `CHANGELOG.md`
-  (see `git show 3dbd0ff` / `6834c06`). The version string lives **only** in
-  the CHANGELOG, nowhere in the source.
+- ⚠️ **Never commit `CHANGELOG.md` edits from a subagent** — the lead edits it centrally (you are the lead: edit it yourself, featwise `docs(changelog)` on the branch, release commit opens the version section on main).
+- ⚠️ **The zig cache hides compiler diagnostics.** `zig cc` replays cached objects without re-emitting warnings, so an incremental build reports "0 warnings" even when the code has 53. **Always `rm -rf .zig-cache` before counting warnings.** True baseline: **53 pre-existing warnings**, all in files this work never touched (`grep 'warning:' | grep -c` on a cold `make release`).
+- ⚠️ **`jarsigner` must be invoked as `-verify` (with the dash).** A bare `verify` is parsed as the *signing* command with jarfile="verify" → jarsigner prompts `Enter Passphrase for keystore` and exits 1. This cost a debugging cycle in `tests/test_apk_v1_signing.sh`.
+
+### v1 signing knowledge you need before touching that code
+
+- **Digest rule (apksigner parity, probed against build-tools 35.0.0):** SHA-256 iff `minSdkVersion >= 18`. Below 18 SHA-256 **fails** `apksigner verify` (`not supported on API Level(s) 15-17`); SHA-1 verifies at *every* level (rc=0 forced at min-sdk 24). No AndroidManifest.xml → SHA-256 (JAR-like input); unreadable manifest / missing uses-sdk → SHA-1 (Android defaults minSdk to 1). Implemented in `apk_v1_use_sha256()` (`format_apk_sign.c`).
+- **Attribute names:** `SHA-256-Digest` / `SHA-256-Digest-Manifest` (apksigner's spelling). jarsigner's `SHA-1-Digest` (hyphen) is **rejected by apksigner** (`No digest for ... in META-INF/T.SF`); `SHA1-Digest` is accepted by both — that is what we write for SHA-1.
+- **Section digests hash the raw stored bytes, wrapping included** — proven `RAW-MATCH` against apksigner's own wrapped output (`/tmp/opencode/sec_digest_probe.py`).
+- **Manifest line wrapping:** JAR spec = 72 content bytes, continuation lines start with one space. jarsigner writes 72, apksigner 70, both cross-accept. Unwrapped long lines are rejected outright: a 613-byte `Name:` line → jarsigner `manifest line too long`, apksigner `No JAR signatures`.
+- **Do not chase the combined-at-min24 `v1: false` verdict:** with v2 present and min-sdk ≥ 24 apksigner skips v1 verification — and reports `v1: false` for **its own output** too (forced `--min-sdk-version 18` → all three true). Our parity matrix matched apksigner's own output in every cell.
+- **SHA-1 fixtures produce JDK warnings by design** (`treated as unsigned`, policy not defect — real jarsigner output does it too); the regression test asserts SHA-1 cases with apksigner only.
+- PKCS#7: `encryptedDigest` must be exactly `key->bits/8` bytes (the v1 path hardcoded 256 → apksigner `Bad signature length: got 256 but was expecting 128` for 1024-bit keys; same fix #13 gave v2/v3).
 
 ---
 
-## 1. Issue inventory (evidence-based)
+## 1. Issue inventory (all closed)
 
 | # | Title | State |
 |---|---|---|
-| **5** | Native `resources.arsc` encoder | ✅ closed — `c1fbb13`…`0d70a1e`, PR #27 — §5 |
-| **13** | Native v3 APK signing: RSA signature does not verify | ✅ closed — `3237469`…`ac0914f`, PR #27 — §3 |
-| **22** | `smali_encoder`: no register range validation per instruction format | ✅ closed — `65e9c44`, PR #27 — §4.1 |
-| **8** | Smali Assembler — Validation & Error Reporting | ✅ closed — `48b2507`, `e05474e`, PR #27 — §4.2 |
-| **7** | Smali Assembler — Debug Info (Line Numbers & Locals) | ✅ closed — `55d14a4`, PR #27 — §4.4 |
-| **25** | `format_axml_encode`: gravity enum strings not parsed | ✅ closed — `8d0ffed`, PR #27 |
-| **24** | `format_apk_decode_arsc`: incomplete resource qualifier parsing | ✅ closed — `cd92923`, PR #27 |
-| **26** | DEX 037 support, correct smali output paths, crash/bounds hardening | ✅ closed — PR #26 |
-| **28** | annotation `.enum` written with an out-of-range field index | ✅ **closed** — PR #29 (`b98d6cd`), released as v0.8.3 — §4.5 |
-| **30** | v1 (JAR) signing: SHA-1 + every entry "nonexistent signed entry" | 🔴 **open** — §8 |
-
----
+| **5** | Native `resources.arsc` encoder | ✅ closed, PR #27 → `82ddf91`, v0.8.2 |
+| **13** | Native v3 APK signing: RSA does not verify | ✅ closed, PR #27 |
+| **22** | `smali_encoder`: no register range validation | ✅ closed, PR #27 |
+| **8** | Smali Assembler — Validation & Error Reporting | ✅ closed, PR #27 |
+| **7** | Smali Assembler — Debug Info | ✅ closed, PR #27 |
+| **25** | `format_axml_encode`: gravity enum strings | ✅ closed, PR #27 |
+| **24** | `format_apk_decode_arsc`: resource qualifier parsing | ✅ closed, PR #27 |
+| **26** | DEX 037 support, smali paths, hardening | ✅ closed, PR #26 |
+| **28** | annotation `.enum` out-of-range field index | ✅ closed, PR #29 → `b98d6cd`, v0.8.3 |
+| **30** | v1 JAR signing: SHA-1 + `nonexistent signed entries` | ✅ **closed, PR #31 → `c8dbd65`, v0.8.4** — §3 |
 
 ## 2. Commits
 
-PR #29 squash-merged the 8 commits of `fix/issue-28-annotation-enum` into
-`main` as `b98d6cd`; `6834c06` is the release commit that opens the `0.8.3`
-section of the CHANGELOG.
-
-On `main`:
+### v0.8.4 (issue #30) — squash merge `c8dbd65` on main, release `228ca91`
 
 ```
+228ca91 release: bump version to 0.8.4
+c8dbd65 fix(apk): v1 signing — apksigner-parity digest, META-INF preservation, long-name safety (#30) (#31)
+```
+Branch (deleted on merge), in order:
+```
+ef20be1 docs(changelog): record the v1 signing fixes of issue #30
+ec0a4c4 test(apk): add a regression test for the v1 signing path
+a56a8eb fix(apk): size the PKCS#7 signature by the signing key
+4e1dd2a fix(apk): wrap long manifest name lines and size the v1 buffers by content
+5eee8d3 feat(apk): sign the v1 manifest with the digest apksigner would choose
+c0642af fix(apk): keep META-INF content entries when signing with v1
+4ffa073 refactor(apk): split the v1 signer into manifest, PKCS7 and orchestration files
+```
+
+### Earlier (from the v0.8.3 handoff)
+
+```
+4cc7bf9 docs(handoff): record the v0.8.3 release and issue #30   (superseded by this file)
 6834c06 release: bump version to 0.8.3
-b98d6cd fix(smali): annotation .enum field index, annotation binding and a use-after-free (#28) (#29)
-d89f1dd docs(handoff): record the v0.8.2 release and what is left
+b98d6cd fix(smali): annotation .enum fixes (#28) (#29)
 3dbd0ff release: bump version to 0.8.2
-82ddf91 feat: native resources.arsc encoder, signed APK fix and smali assembler hardening (#27)
+82ddf91 feat: arsc encoder, signed APK fix, smali hardening (#27)
 ```
 
-### 2b. Issue #28 — the annotation fixes (PR #29)
+## 3. Issue #30 — the v1 (JAR) signing path. **FIXED, VERIFIED, RELEASED (v0.8.4)**
 
-Seven fixes/tests + one docs commit, one logical change each; on `main` they
-live in the squash merge `b98d6cd`:
+### 3.1 Four defects, each with a control experiment
 
-```
-f4fbc84 docs(handoff): record the #28 fixes and the state of the branch
-d98f4c3 docs(changelog): record the annotation fixes
-7ec3113 test(smali): add regression tests for the annotation handling
-e614f4a fix(smali): resolve the enum field reference through the field pool
-78aa914 fix(smali): reject a malformed .enum value
-0a5d3d9 fix(smali): bind a field annotation only when ".end field" closes it
-c6f709c refactor(smali): move the annotation parsing into its own module
-569d3f8 fix(smali): free the dispatch token only once in the class parser
-```
+1. **SHA-1 digest, disabled by modern JDKs** (the reported symptom). Control: real jarsigner's *own* SHA-1 output reproduces both warnings (`treated as unsigned` + `nonexistent signed entries: [f.txt]`) on a trivial jar; its SHA-256 output verifies clean. The entry names matched zip↔manifest↔SF **100/100** all along — the warning was the JDK's disabled-algorithm path, not a zip defect. Fix: the apksigner-parity digest rule (§0 table), attribute names `SHA-256-Digest`/`SHA1-Digest`, PKCS#7 `rsa_sign_sha256` + OID `2.16.840.1.101.3.4.2.1` in SignedData *and* SignerInfo (`openssl pkcs7 -print` confirms `sha256WithRSAEncryption`).
+2. **META-INF content dropped** (found while investigating #1): the signer skipped *every* `META-INF/` entry — the test APK lost **71 content files** (androidx `.version`, `services/`, build metadata) from the output and from the manifest. Both reference signers keep and sign them (their manifests list `META-INF/...`). Fix: `apk_is_signature_file()` mirrors JDK `SignatureFileVerifier.isSigningRelated()` (directly under META-INF/: MANIFEST.MF, .SF/.DSA/.RSA/.EC, SIG-* with1-3 alnum ext); content files are signed like any entry, in the manifest *and* in the copy loop.
+3. **Long entry names → unverifiable output** (pre-existing): unwrapped `Name:` lines — 613 bytes → jarsigner `manifest line too long` **and** apksigner `No JAR signatures` (both reference tools reject). The fixed `256+n*256` buffer let `*out_len` pass the allocation (820 for 768 → the SF hashed heap garbage), and `name_line[512]` silently dropped long names. Fix: both builders append into the in-tree `arsc_buf`; name lines wrap at 72 content bytes (continuation = one leading space); the SF copies the manifest's name lines **byte-for-byte** so wrapped names stay wrapped and logical names match.
+4. **PKCS#7 `encryptedDigest` hardcoded 256**: non-2048-bit keys → broken CERT.RSA (apksigner: `Bad signature length: got 256 but was expecting 128`; jarsigner: `not parsable or not verifiable`). Fix: `key->bits/8` — the fix #13 already gave v2/v3.
 
----
+### 3.2 Parity matrix (our output vs apksigner's own, same fixtures)
 
-## 3. Issue #13 — APK signing (P0). **FIXED, VERIFIED**
+| fixture | ours | apksigner's own |
+|---|---|---|
+| min24, v1-only | v1 true | v1 true |
+| min17, v1-only, SHA-1 | apksigner verifies | same choice, same verdict |
+| min18, v1+v2+v3 | all three true | all three true |
+| min24, v1+v2+v3 | v1 false, v2/v3 true | **identical quirk** (forced min18 → all true) |
+| no uses-sdk | SHA-1, verifies | SHA-1, verifies |
 
-### 3.1 Root cause (do not re-derive)
+### 3.3 Long-name evidence (before → after)
 
-The v3 signature machinery was **correct all along**. The bug was a **cert/key
-mismatch**: `format_apk_sign_block.c` embedded the **static built-in**
-`cert_der`/`pubkey_der` when no custom certificate was supplied, but signed with
-the **user's** private key. apksigner derives the public key from the embedded
-certificate → the signature (made with a different key) does not verify.
+| fixture | max `Name:` line | jarsigner | apksigner |
+|---|---|---|---|
+| 342-byte name, old code | 348 (unwrapped) | tolerated | tolerated |
+| 613-byte name, old code | 619 | ✗ `manifest line too long` | ✗ `No JAR signatures` |
+| 613-byte name, new code | **72** | ✗→**`jar verified.`** | ✗→**rc=0** |
+| 542-byte name, new code (test) | **72** | `jar verified.` | verifies |
 
-### 3.2 What changed (PR #27)
+Section digests on wrapped output: `RAW-MATCH` (hash of raw stored bytes) — probe script `/tmp/opencode/sec_digest_probe.py` (ephemeral; recreate from §6 if needed).
 
-- **`3237469` `feat(crypto)`** — new `src/crypto/der.c` (191 LOC) + `include/der.h`:
-  - `der_spki_from_rsa()` builds the canonical `SubjectPublicKeyInfo` from the
-    `rsa_key` limbs; **byte-identical to OpenSSL's SPKI** (2048- and 1024-bit).
-  - `der_pubkey_from_cert()` **parses** the X.509 structure instead of scanning
-    for the rsaEncryption OID (the old scan only matched `30 82`, so 1024-bit
-    keys failed).
-  - `der_cert_matches_key()` compares the two SPKIs.
-  - `src/crypto/rsa.c`: `parse_pkcs8_der()` skipped the public exponent `e`; it
-    is read now.
-- **`fb90904` `fix(apk)`** — both signing paths refuse a cert/key mismatch
-  (`APK_SIGN_ERR_CERT_MISMATCH`); signature length follows `key->bits / 8`.
-- **`cdf3d8f` `fix(apk)`** — `execute_resign_apk()` reports `cert_key_mismatch`
-  and **exits 1** (used to exit 0 on failure); default key resolution.
-- **`ac0914f` `test(apk)`** — `tests/test_apk_signing.sh`.
+## 4. Issues #5/#7/#8/#13/#22/#24/#25/#26/#28 — closed (see the v0.8.2/v0.8.3 handoffs for the full detail)
 
-### 3.3 Verification
+Carried summaries:
+- **#13 APK signing**: cert/key mismatch root cause; `der.c` SPKI; both paths refuse mismatched certs (`cert_key_mismatch`, exit 1); `resolve_default_key_path()`; `tests/test_apk_signing.sh` **12/12**.
+- **#22/#8/#7 smali**: 27-row register limit table (`smali_validate.c`); `file:line:` diagnostics; type-list dedup + growable param buffer; debug info uleb128p1/section fixes; `tests/test_smali_register_limits.sh` **21/21**, `tests/test_smali_diagnostics.sh` **7/7**.
+- **#28 annotations**: `.enum` through the field pool, malformed `.enum` rejection, binding only at `.end field`, use-after-free in the class parser; module `smali_annot.c`; `tests/test_smali_annotations.sh` **16/16**.
+- **#24/#25 apks**: full `ResTable_config`; gravity enum strings.
+- **#5 arsc encoder**: model/load/write pipeline; 17 real APKs byte-identical round trip; `tests/test_arsc_encode.sh` **22/22**.
+- **#26**: DEX 037 allowlist, descriptor path fix, G7/G15, multi-DEX assembly.
 
-```
-matching cert (2048-bit):  {"status":"success"}  → apksigner: v2: true, v3: true        ✓
-mismatched (no cert):      {"error":"…cert_key_mismatch"} exit 1 → no .signed file      ✓
-zero-config (clean dir):   keys/testkey.pem auto-found → v2: true, v3: true             ✓
-1024-bit key + cert:       cert parse OK → v2: true, v3: true                           ✓
-v1 path, mismatched cert:  rejected, exit 1                                            ✓
-```
+Known-not-fixed in those areas (carried): `smali_pool.c` `comp_field_key`/`comp_method_key` strict-weak-ordering (LOW, from the PR review).
 
-### 3.4 The v1 (JAR) path — **now issue #30** (§8)
+## 5. Issue #5 — Native `resources.arsc` encoder (the base for the XML→ARSC compiler)
 
-Still broken: SHA-1 digest (Android 7+ rejects) and jarsigner reports
-"nonexistent signed entries" for every entry. Reproduced on v0.8.3 with
-evidence and filed as **issue #30** with acceptance criteria.
+### 5.1 What was there before
 
----
+`src/android/arsc/format_arsc_build.c` had `arsc_build()`, but it only **patched the
+global string pool** and copied the rest of the original file byte for byte.
+It was not a resource table writer, and the old parser kept only the **last**
+configuration of every type, so the other configurations were unreachable.
 
-## 4. Issues #22 / #8 / #7 / #28 — smali assembler
+### 5.2 The shipped code
 
-### 4.1 #22 — register range validation (`65e9c44`)
+| File | LOC | What it does |
+|---|---|---|
+| `format_arsc_model.h/.c` | 122 / 211 | the model: global value pool, packages, types, variants, entries, map items + `arsc_model_set_string()` / `arsc_model_set_int()` |
+| `format_arsc_load.c` | 186 | ARSC → model (string pool, package, type spec, type chunk, entries) |
+| `format_arsc_pool.c/.h` | 48 | string pool reader, UTF-16 package name |
+| `format_arsc_fmt.h` | 116 | little-endian accessors, UTF-8 ↔ UTF-16 |
+| `format_arsc_buf.c/.h` | 83 | the growable byte buffer of the writer (**reused by the v1 signer since v0.8.4**) |
+| `format_arsc_write.c` | 94 | `arsc_encode()`: table, package chunks |
+| `format_arsc_write_pool.c` | 78 | the string pools |
+| `format_arsc_write_entry.c` | 96 | type spec, type chunk, entries |
+| `src/tools/tool_arsc.c` | 191 | the `arsc_encode` and `arsc_info` tools |
 
-`src/android/smali/smali_validate.c` (124 LOC) holds a 27-row table with the
-limits of every DEX bytecode format; `smali_encoder.c` calls
-`smali_validate_insn()` for every instruction and aborts the encoding with a
-diagnostic instead of truncating the operand. Verification:
-`tests/test_smali_register_limits.sh` → **21/21**.
+The old `format_arsc_parse.c` / `format_arsc_build.c` are untouched: the AXML
+decoder still uses them, the encoder is a second, independent path.
 
-### 4.2 #8 — syntax errors with the source line (`48b2507`)
+### 5.3 The format details that cost the most time (memorize before touching ARSC)
 
-- `smali_line_t` tracks the physical source line; `smali_fail_at(line, …)`
-  produces `file:line: message`.
-- Unknown instructions/directives are errors (`.restart local` accepted);
-  a parse error **aborts the assembly** instead of silently dropping the file.
-- Side fix: the method signature was silently truncated (`.method a(I, I)V`
-  carried 1 of 70 parameters); now read as a whole and normalised.
-- Verification: `tests/test_smali_diagnostics.sh` → **7/7**.
+- **`ResTable_map` is 12 bytes, not 8**: a map item is a `name` (u32) plus a full
+  `Res_value` (size, res0, dataType, data). Reading it as 8 bytes shifts every
+  complex entry and loses 6,576 bytes in the `attr` type of the test APK.
+- **The type spec carries `res1`**: aapt2 stores the config flags of the type in the
+  `uint16` at offset 10 of the `ResTable_typeSpec` chunk (0x0001 for `anim`,
+  0x0057 for `string`, …). It is not padding — dropping it changes 16 bytes of the
+  test APK.
+- **Entry offsets are relative to `entriesStart`**, not to the chunk start.
+- **The package name is UTF-16** and must be decoded to UTF-8 and back; a
+  one-byte-per-code-unit copy leaves the tail of the buffer uninitialised and
+  writes garbage after the terminator (this broke 6 of the 17 test APKs).
+- **The package id is a `uint32`**, not a byte — writing one byte shifts the whole
+  package header.
 
-### 4.3 #8 — type lists (`e05474e`)
-
-`smali_typelist.c` reuses identical type_list items (proto parameter lists and
-class interface lists). Also fixed an **uninitialised stack read**: parameter
-type indices lived in a fixed 256-entry array with an unbounded count.
-
-### 4.4 #7 — debug info (`55d14a4`)
-
-Six defects, all fixed: no `debug_info_item` map entry, names never added to
-the string pool, plain uleb128 instead of **uleb128p1**, no address advance
-without `.line`, `.epilogue` dropped, `.local` type parsed as `":"`.
-Verified: two fixtures assemble identically under `smali.jar` and agent-x;
-baksmali disassembles both to byte-identical smali.
-
-### 4.5 #28 — the annotation `.enum` writer. **FIXED, VERIFIED, RELEASED (v0.8.3)**
-
-Four defects, all fixed in PR #29 (`b98d6cd`):
-
-1. **The enum field index was 0** — a value without the type was never added to
-   the field pool (`0xFFFFFFFF` lookup, index 0 written); baksmali threw
-   `IndexOutOfBoundsException: Invalid field index 0`. The malformed value is
-   rejected now with `file:line: message`, like the reference assembler.
-2. **The static field initializer had the same defect** — the reference was only
-   in the string pool, so the initializer pointed at the field that carries it;
-   it enters the field pool now (`pool_add_enum_ref()`).
-3. **A use after free in the class parser** — the `.field` branch and the class
-   parser both released the dispatch token (ASan-confirmed); freed once now.
-4. **The binding rule** — a `.annotation` after `.field` belongs to the field
-   only when `.end field` closes it; the block is parsed on its own and handed
-   to the field only when the terminator follows.
-
-The annotation parsing moved into `src/android/smali/smali_annot.c` (199 LOC,
-inside the Small File Rule): the class/field/method parsers shared three copies
-of the same loop.
-
-**Verification:** `tests/test_smali_annotations.sh` → **16/16** (checks the
-*position* of the annotation in the disassembly). Against the old code **5 of 14
-assertions fail**, so the test does detect the defects. The `ann3`/`ann4`
-fixtures were corrected to the valid enum syntax (they were invalid smali — the
-reference assembler rejected them).
-
-### 4.6 Known pre-existing problems in this area (found, not fixed)
-
-- **Small File Rule violations**: `smali_writer.c` 1233 LOC, `smali_pool.c` 767,
-  `smali_insn_parser.c` 526, `smali_parser.c` 512 (limit is 250).
-- `smali_pool.c` `comp_field_key` / `comp_method_key` strict-weak-ordering
-  concern (malformed keys use `strcmp` while valid keys use a numeric index).
-
----
-
-## 5. Issue #5 — Native `resources.arsc` encoder. **DONE, VERIFIED**
-
-The encoder decodes a resource table into an in-memory model and writes it back:
-`arsc_encode()` emits the string pools, the `ResTable_package` chunk and, per
-type, the `ResTable_typeSpec` + one `ResTable_type` per configuration.
-
-### 5.1 The format details that cost the most time
-
-- **`ResTable_map` is 12 bytes, not 8** (a `name` u32 plus a full `Res_value`).
-- **The type spec carries `res1`** (config flags at offset 10, not padding).
-- **Entry offsets are relative to `entriesStart`**, not the chunk start.
-- **The package name is UTF-16** — a one-byte-per-code-unit copy writes garbage
-  after the terminator (broke 6 of 17 test APKs).
-- **The package id is a `uint32`**, not a byte.
-
-### 5.2 Verification
+### 5.4 Verification
 
 ```
-17 real APKs round tripped      → 17/17 byte identical (cmp)
-GA Notification Monitor.apk    → 1,024,736 bytes in/out, cmp clean
+17 real APKs round tripped      → 17/17 byte identical (cmp, not a dump)
+GA Notification Monitor.apk    → 1,024,736 bytes in, 1,024,736 bytes out, cmp clean
 independent oracle dump        → 21,814 lines, 0 differences
-patched APK                    → aapt2 + apktool see the patched string
+fixture from tests/arsc_build  → byte identical
+patched APK                    → aapt2: string/app_name = "Agent-X Patched"
+                                 apktool: <string name="app_name">Agent-X Patched</string>
 ```
+`tests/test_arsc_encode.sh` (**22/22**): takes the binary path as its first argument
+and the APKs from `ARSC_TEST_APKS` (newline separated). `tests/arsc_dump.py` is the
+independent oracle, `tests/arsc_build.py` builds a fixture without aapt2.
 
-`tests/test_arsc_encode.sh` → **22/22**; takes the binary as first argument,
-the APKs from `ARSC_TEST_APKS` (newline separated).
-`tests/arsc_dump.py` = independent oracle; `tests/arsc_build.py` = fixture.
+### 5.5 What is still missing → §7 item 2
 
-### 5.3 What is still missing (the next big feature)
-
-The encoder writes a table; it does **not compile** `res/values/*.xml` into
-one. `decode_apk` writes resources as XML and `build_apk` copies the original
-`resources.arsc` back, so a value edited in `res/values/strings.xml` is still
-lost. An XML → ARSC compiler (the aapt2 half) is the natural follow-up; the
+The encoder writes a table; it does **not compile** `res/values/*.xml` into one.
+`decode_apk` writes the resources as XML and `build_apk` copies the original
+`resources.arsc` back, so a value edited in `res/values/strings.xml` is still lost.
+An XML → ARSC compiler (the aapt2 half of the job) is the natural follow-up; the
 model and the writer are the part it needs.
 
----
 
-## 6. Test assets (all in the repository now)
+## 6. Test assets (all in the repository)
 
-### 6.1 Committed test scripts
-
-| Script | What it does | Result on v0.8.3 |
+| Script | What it does | Result (v0.8.4) |
 |---|---|---|
-| `tests/test_arsc_encode.sh` | resource table encoder: fixture round trip, oracle dump, string/int patch, `arsc_info`, real APKs of `ARSC_TEST_APKS` | **22/22** |
-| `tests/test_apk_signing.sh` | 12 cases incl. apksigner v2+v3 verification | **12/12** |
-| `tests/test_smali_register_limits.sh` | 21 instructions inside/outside the limit of their DEX format | **21/21** |
-| `tests/test_smali_diagnostics.sh` | 7 broken files → `file:line: message` each | **7/7** |
-| `tests/test_smali_annotations.sh` | 8 fixtures, position of the annotation checked in the disassembly | **16/16** |
-| `tests/dex_invariants.py` | G7, G8, header `file_size` vs real size | OK on all fixtures |
-| `tests/arsc_dump.py` / `tests/arsc_build.py` | independent oracle / fixture builder | — |
+| **`tests/test_apk_v1_signing.sh`** | **issue #30: digest rule at the minSdk 17/18 boundary, META-INF preservation + manifest listing, combined v1+v2+v3 (both oracles), a 542-byte wrapped name (≤72 lines), a 1024-bit key. oracles skipped when absent.** | **28/28** |
+| `tests/test_apk_signing.sh` | issue #13: cert/key mismatch + apksigner v2/v3 | **12/12** |
+| `tests/test_apk_signing.sh` … register/diagnostics/annotations | issues #22/#8/#28 | **21/21 · 7/7 · 16/16** |
+| `tests/test_arsc_encode.sh` (`ARSC_TEST_APKS` env) | issue #5 | **22/22** |
+| `tests/dex_invariants.py` · `tests/arsc_dump.py` · `tests/arsc_build.py` | G7/G8/header checks; ARSC oracle; fixture builder | 0 failures |
 
-Each script takes the binary path as its first argument, defaults to `./agent-x`.
+Every script takes the binary path as `$1` (default `./agent-x`).
 
-### 6.2 Helper scripts (in `/tmp/opencode`, ephemeral — copy into `tests/` if wanted)
-
-| Script | What it does |
-|---|---|
-| `dextl.py <dex> [expected]` | counts the type_list items and compares with the map entry |
-| `dbgdecode.py <dex>` | decodes a debug_info section (reads uleb128p1 fields as plain uleb128 — use baksmali instead) |
-| `dbgcmp.py <a.dex> <b.dex>` | compares the debug_info sections of two DEX files |
-
-### 6.3 Current regression status — **v0.8.3** (`6834c06`, cold build)
+### Current regression status (v0.8.4, cold `make release`)
 
 ```
-39 smali fixtures assemble            → 39 OK, 0 FAIL
-baksmali parses all of them           → 39 OK, 0 FAIL
-DEX G7/G8 invariants (rel_*.dex)      → 0 failures
-tests/test_apk_signing.sh             → 12 pass, 0 fail
-tests/test_smali_register_limits.sh   → 21 pass, 0 fail
-tests/test_smali_diagnostics.sh       → 7 pass, 0 fail
-tests/test_smali_annotations.sh       → 16 pass, 0 fail
-tests/test_arsc_encode.sh             → 22 pass, 0 fail
-cold-build warnings                   → 53 (unchanged pre-existing baseline)
+test_apk_v1_signing.sh        → 28 pass, 0 fail      (oracles: apksigner 35.0.0, JDK 21 jarsigner)
+test_apk_signing.sh           → 12 pass, 0 fail
+test_smali_register_limits.sh → 21 pass, 0 fail
+test_smali_diagnostics.sh     → 7 pass, 0 fail
+test_smali_annotations.sh     → 16 pass, 0 fail
+test_arsc_encode.sh           → 22 pass, 0 fail       (106 total assertions)
+39 smali fixtures assemble    → 39 OK, 0 FAIL
+baksmali on all outputs       → all OK
+python3 tests/dex_invariants.py → 0 failures
+ASan/UBSan/LSan (signing paths: long names, META-INF, 1024-bit, combined, manifest-less) → no report
+warnings (rm -rf .zig-cache)  → 53 (unchanged baseline)
+byte-identity                 → short-name fixtures identical across the refactor +
+                                the buffer rewrite + the PKCS#7 key-length fix
 ```
 
-Fixture trees live in `/tmp/opencode/<name>/`: `t1 t2 t3 t4 ann ann2 ann3 ann4
-bulk cls big huge p2 p3 p4 mref onlymethods fieldkey x_field_arrow_nocolon
-x_enum_qmark x_method_arrow_noparen proto70 tldedup proto300 proto300b dbgcmp
-dbg2 b1 b2 b3 b4 b5 b6 b7 b8 ann5 ann6 ann7 r2`.
-
-### 6.4 Build and warnings
-
-```
-cd /home/grandpa/me/code/c-lang/Agent-X
-rm -rf .zig-cache && make clean && make release   # ~328 KB static
-```
-
-**53 warnings, all pre-existing**:
-
-| file | count |
-|---|---|
-| `src/android/axml/format_axml_output.c` | 30 (`-Wmissing-field-initializers`) |
-| `src/android/dex/format_dex_smali_method.c` | 12 |
-| `src/android/axml/format_axml_encode.c` | 3 |
-| `src/android/arsc/format_arsc_toml.c` | 3 |
-| `src/formats/zip/format_zip.c` | 1 |
-| `src/android/smali/smali_writer.c` | 1 (`annot_set_ref_list_count` unused) |
-| `src/android/smali/smali_lexer.c` | 1 (`has_colon` unused) |
-| `src/android/axml/format_axml_strings.c` | 1 |
-| `src/android/arsc/format_arsc_build.c` | 1 |
-
-Sanitizer build:
-
-```bash
-rm -rf .zig-cache && make clean && make CC="gcc -fsanitize=address,undefined -fno-omit-frame-pointer -g" \
-                                            LDFLAGS="-fsanitize=address,undefined"
-ARSC_TEST_APKS="…" ./tests/test_arsc_encode.sh     # 22/22, no ASan/UBSan/LSan report
-```
-
----
-
-## 7. What is left
-
-Everything from the previous handoff is done:
-
-| # | Item | State |
-|---|---|---|
-| 1 | Issue #5 — the native `resources.arsc` encoder | ✅ done, §5 |
-| 2 | Open an issue for the ann3/ann4 annotation defect | ✅ **#28** → fixed, released |
-| 3 | Close #13, #22, #8, #7, #25, #24, #5 on GitHub | ✅ all closed with evidence |
-| 4 | CHANGELOG entries | ✅ under `## [0.8.3]` |
-| 5 | Version bump + tag | ✅ `6834c06` + `v0.8.3` pushed |
-| 6 | Full regression before pushing | ✅ §6.3 — all green |
-| 7 | Push + PR + merge | ✅ PR #29 merged as `b98d6cd` |
-| 8 | Issue #28 — the annotation `.enum` writer | ✅ closed with evidence |
-| 9 | Issue for the v1 (JAR) signing path | ✅ **#30** opened (§8) |
-
-### The next pieces of work (in order)
-
-1. **Issue #30 — the v1 (JAR) signing path** (§8): switch to SHA-256 and fix
-   the zip/manifest mismatch that makes every entry a "nonexistent signed
-   entry". Acceptance criteria are in the issue.
-2. **An XML → ARSC compiler** (§5.3) — the natural follow-up to the encoder:
-   `build_apk` copies the original `resources.arsc` back, so a value edited in
-   `res/values/strings.xml` is still lost. The model and the writer exist.
-3. **The Small File Rule violations** (§4.6) — `smali_writer.c` 1233 LOC,
-   `smali_pool.c` 767, `smali_insn_parser.c` 526, `smali_parser.c` 512.
-4. **`smali_pool.c` `comp_field_key` / `comp_method_key`** — the strict weak
-   ordering concern (LOW).
-5. **The 53 pre-existing warnings** (§6.4) — real, out of scope so far.
-6. **Delete `fix/open-issues-13-25-24-5-22-8`** (local + remote) once the
-   issue comments that cite its commits no longer need them:
-   `git push origin --delete fix/open-issues-13-25-24-5-22-8`.
-
-### The full regression, for the next run
+### Full regression recipe
 
 ```bash
 cd /home/grandpa/me/code/c-lang/Agent-X
@@ -358,67 +222,67 @@ for t in t1 t2 t3 t4 ann ann2 ann3 ann4 bulk cls big huge p2 p3 p4 mref onlymeth
   ./agent-x tool smali_assemble src_dir=$d out_dex=/tmp/opencode/final_$t.dex >/dev/null 2>&1 \
     && echo "OK $t" || echo "FAIL $t"
 done
+./tests/test_apk_v1_signing.sh
 ./tests/test_apk_signing.sh
 ./tests/test_smali_register_limits.sh
 ./tests/test_smali_diagnostics.sh
 ./tests/test_smali_annotations.sh
 ARSC_TEST_APKS="$(ls ~/Downloads/Telegram\ Desktop/*.apk)" ./tests/test_arsc_encode.sh
 python3 tests/dex_invariants.py /tmp/opencode/final_*.dex
-# plus: baksmali d on the outputs, and an ASan/UBSan cold build (§6.4)
+/home/grandpa/.local/bin/baksmali d /tmp/opencode/final_t1.dex -o /tmp/opencode/final_t1_out
 ```
-
----
-
-## 8. Issue #30 — the v1 (JAR) signing path. **OPEN**
-
-Reproduced on v0.8.3 (`resign_apk … scheme=v1`, 4.4 MB real APK):
-
+Sanitizer pass (signing paths):
+```bash
+rm -rf .zig-cache && make clean && make CC="gcc -fsanitize=address,undefined -fno-omit-frame-pointer -g" \
+                                            LDFLAGS="-fsanitize=address,undefined"
+ASAN_OPTIONS=detect_leaks=1 ./tests/test_apk_v1_signing.sh
+ASAN_OPTIONS=detect_leaks=1 ./tests/test_apk_signing.sh
 ```
-$ jarsigner -verify -verbose t13b.apk.signed
-    Digest algorithm: SHA1 (disabled)
-    Signature algorithm: SHA1withRSA (disabled), 2048-bit key
-WARNING: The jar will be treated as unsigned, because it is signed with a weak algorithm ...
-     Warning: nonexistent signed entries: [res/…, AndroidManifest.xml, classes.dex, …]  # every entry
-     s = signature was verified
-```
+Then rebuild `make release` for the real binary. Warning count only from a cold cache.
 
-- **Defect 1**: SHA-1 (`SHA1-Digest` in MANIFEST.MF); must be SHA-256 — the
-  code exists already in `src/crypto/sha256.c` (used by v2/v3).
-- **Defect 2**: the v1 zip writer's entries do not line up with what the
-  MANIFEST.MF names — likely entry-name mismatch, manifest written against a
-  different entry list, or entries added after the manifest was generated.
-- The apksigner `DOES NOT VERIFY` on v1-only output is *expected* (targetSdk 34
-  requires v2+); the jarsigner warnings are the real defects.
-- Acceptance criteria in the issue: `jarsigner -verify` clean, SHA-256, a
-  regression script in `tests/`, and a combined `v1,v2,v3` output verified.
+### Ephemeral fixtures in `/tmp/opencode` (recreate if gone)
 
----
+- Signing probes for #30: `f15` (min15), `f00` (no uses-sdk), `f18t23` (min18), `f24t23`/`f24clean` (min24), `fm17`-style boundaries, `longname` (342-byte name), `huge` (613), `noman` (manifest-less) — each built with `agent-x tool axml_assemble` + `zip -qr`, signed with `resign_apk key=/tmp/opencode/testkey_p8.pem cert=/tmp/opencode/testcert.der`.
+- `sec_digest_probe.py` — proves the section-digest convention (RAW vs UNWRAPPED).
+- Test material: `openssl genrsa -traditional -out testkey.pem 2048` → `openssl pkcs8 -topk8 -nocrypt …` → `openssl req -new -x509 … -outform DER -out testcert.der` (the tool parses **PKCS#8** only).
 
-## 9. Environment cheat-sheet
+## 7. What is left
+
+| # | Item | State |
+|---|---|---|
+| 1 | Issue #30 — v1 signing path | ✅ **done, v0.8.4** |
+| 2 | **XML → ARSC compiler** — `decode_apk` writes resources as XML but `build_apk` copies the original `resources.arsc`, so values edited in `res/values/strings.xml` are still lost. The model+writer from #5 are the building blocks. | **open — next big feature** |
+| 3 | **Small File Rule violations**: `smali_writer.c` 1233, `smali_pool.c` 767, `smali_insn_parser.c` 526, `smali_parser.c` 512 (limit 250). The v1 signer files were also over and are now split ≤250 (`format_apk_sign.c` 131 / `_mf.c` 220 / `_pkcs7.c` 192). | open |
+| 4 | `smali_pool.c` `comp_field_key`/`comp_method_key` strict-weak-ordering (LOW, PR review finding) | open |
+| 5 | The 53 pre-existing warnings (§6.4 of the v0.8.2 handoff; files untouched so far) | open |
+| 6 | Delete the kept branch: `git push origin --delete fix/open-issues-13-25-24-5-22-8` (its commits are cited in issue comments; decide when those comments no longer need them) | open |
+
+Suggested order: **2** (the feature the arsc encoder was built for), then 3/4/5 as refactors, 6 whenever.
+
+## 8. Environment cheat-sheet
 
 ```bash
-# build (cold cache, so the warnings are real)
+# build (cold cache for real warnings)
 cd /home/grandpa/me/code/c-lang/Agent-X && rm -rf .zig-cache && make clean && make release
 
-# tools
-/home/grandpa/.local/bin/baksmali          # reference disassembler
-/home/grandpa/.local/bin/smali              # reference assembler
-/home/grandpa/Android/Sdk/build-tools/35.0.0/apksigner    # authoritative APK verifier
-/home/grandpa/Android/Sdk/build-tools/35.0.0/aapt2        # ARSC/APK oracle
-/home/grandpa/.local/bin/apktool            # APK decode oracle
+# oracles
+/home/grandpa/Android/Sdk/build-tools/35.0.0/apksigner    # APK oracle (v1 digest probes, verify)
+/usr/bin/jarsigner                                         # JDK 21 JAR oracle — always `-verify`
+/home/grandpa/.local/bin/baksmali                          # reference disassembler
+/home/grandpa/.local/bin/smali                             # reference assembler
+/home/grandpa/Android/Sdk/build-tools/35.0.0/aapt2         # ARSC/APK oracle
+/home/grandpa/.local/bin/apktool                           # APK decode oracle
 
-# signing test material
+# key material (the tool parses PKCS#8, not PKCS#1)
 cd /tmp/opencode
 openssl genrsa -traditional -out testkey.pem 2048
 openssl pkcs8 -topk8 -nocrypt -in testkey.pem -out testkey_p8.pem
 openssl req -new -x509 -key testkey.pem -subj "/CN=Test" -days 3650 -outform DER -out testcert.der
-# NB: the tool's rsa_load_key only parses PKCS#8 ("BEGIN PRIVATE KEY"), not PKCS#1.
 
 # sample APKs
-~/Downloads/Telegram\ Desktop/GA\ Notification\ Monitor.apk     # rich resource qualifiers
+~/Downloads/Telegram\ Desktop/GA\ Notification\ Monitor.apk     # rich resource qualifiers; SHA-256 v1 SF sample
 ~/Downloads/Telegram\ Desktop/base\ (9).apk                      # 4.8 MB resource table
 ~/me/code/rust/ZeroBot/waifuhost-apk/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
-**DEX constraints used throughout:** G7 (a section with size 0 must have offset 0),
-G8 (sections are 4-byte aligned), G15 (`utf16_size` must match the decoded length).
+**DEX constraints used throughout:** G7 (size 0 ⇒ offset 0), G8 (4-byte alignment), G15 (`utf16_size` matches decoded length).
