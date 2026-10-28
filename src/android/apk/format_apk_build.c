@@ -67,8 +67,24 @@ int apk_decode(const char *apk_path, const char *out_dir) {
                                 char *semi = strchr(class_line, ';');
                                 if (semi) {
                                     *semi = '\0';
-                                    char *desc = strrchr(class_line, 'L');
-                                    if (desc) {
+                                    /* class_line is ".class <flags...> L<path>"
+                                     * (the trailing ';' was just nulled out).
+                                     * The type descriptor is the last
+                                     * whitespace-separated token, not "text
+                                     * after the last 'L'" — a class whose own
+                                     * simple name contains an 'L' anywhere
+                                     * (Logger, Layout, Loader, List, Lock, ...,
+                                     * extremely common) has its *own* 'L' as
+                                     * the rightmost one, so the old strrchr
+                                     * truncated the path to whatever followed
+                                     * it. That silently collided two unrelated
+                                     * classes onto the same file (seen on real
+                                     * APKs: "SketchLogger" and "Jdk14Logger"
+                                     * both landed on "ogger.smali", the second
+                                     * one overwriting the first). */
+                                    char *last_sp = strrchr(class_line, ' ');
+                                    char *desc = last_sp ? last_sp + 1 : class_line;
+                                    if (*desc == 'L') {
                                         desc++;
                                         char filepath[1024];
                                         snprintf(filepath, sizeof(filepath), "%s/%s.smali", smali_dir, desc);
