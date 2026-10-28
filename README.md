@@ -200,20 +200,18 @@ Agent-EJ auto-detects, registers, and executes the tool. LLM-supplied arguments 
 
 ## Benchmarks & Footprint
 
-Measured on a standard Linux environment, `make release` build:
+Measured against real APKs (not synthetic fixtures), with wall-clock and peak RSS captured via `time -v` — full methodology, raw numbers, and a head-to-head against the official `baksmali.jar`/`smali.jar` toolchain live in **[benchmark/README.md](benchmark/README.md)**.
 
 | Metric | Value |
 |---|---|
-| **Static binary** | **293 KB** (full feature set, stripped, static) |
-| **Base RSS (idle)** | **3.1 MB** |
-| **smali_flow — single method** | **5–7 ms** |
-| **smali_flow — 165 methods / 41 classes** | **82–97 ms** |
-| **disasm_dex — 113 classes → smali** | **24–37 ms** |
-| **smali_assemble — 113 classes → classes.dex** | **197–258 ms** |
-| **decode_apk — 17,131-class, 23.6 MB APK** | **~57 s**, stable across 3 independent decodes |
-| **Peak RSS (smali_assemble)** | **87 MB** |
+| **Release binary** | **337 KB** (full feature set, stripped, static `musl`) |
+| **Idle process floor** | **748 KB** RSS, < 1 ms |
+| **`decode_apk`** (DEX+AXML+ARSC → editable tree) | peak RSS stays **~20–27 MB** from 120 to 17,131 classes |
+| **`decode_apk` vs `baksmali.jar`**, same 7,193-class DEX | ~1.2x slower wall clock, **~15x less memory** |
+| **`smali_assemble` vs `smali.jar`**, same 7,193-class tree | **~1.9x faster**, **~5.2x less memory** |
+| **Largest APK tested** | 23.6 MB / 17,131 classes — decodes in ~51s, rebuilds+signs in ~70s |
 
-The DEX/Smali/APK pipeline is continuously stress-tested against real-world, obfuscated, multi-dex Android applications — see [CHANGELOG.md](CHANGELOG.md) for detailed before/after findings from each testing round.
+`build_apk`'s peak RSS currently scales worse than linear on very large apps (a known pool-lookup bottleneck, tracked in [AGENTS.md](AGENTS.md) §7b Phase 5.1) — [benchmark/README.md](benchmark/README.md) reports this honestly rather than hiding it. The DEX/Smali/APK pipeline is continuously stress-tested against real-world, obfuscated, multi-dex Android applications — see [CHANGELOG.md](CHANGELOG.md) for detailed before/after findings from each testing round.
 
 ## Documentation
 
