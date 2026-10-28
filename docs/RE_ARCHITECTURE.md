@@ -17,7 +17,7 @@
 
 ## Overview
 
-Agent EJ will become a **native, zero-dependency reverse engineering suite** written in C11. No Java. No Python. No external tools. Everything compiles into a single static binary (~500 KB target).
+Agent EJ is a **native, zero-dependency reverse engineering suite** written in C11. No Java. No Python. No external tools. Everything compiles into a single static binary (293 KB in the `make release` build). DEX⇄Smali, AXML, ARSC, ZIP/APK packaging, and JAR v1/APK v2-v3 signing are all implemented and round-trip-tested against real-world APKs — see [CHANGELOG.md](../CHANGELOG.md) for the current state of each module and [README.md](../README.md#key-features) for a feature-completion summary.
 
 ### Philosophy
 

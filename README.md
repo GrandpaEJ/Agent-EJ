@@ -1,64 +1,140 @@
 <div align="center">
-  <h1 align="center">Agent-EJ 🚀</h1>
+  <h1 align="center">Agent-EJ</h1>
   <p align="center">
-    <strong>An Ultra-Lightweight, Zero-Dependency Autonomous AI Agent & Native Android Reverse Engineering Suite built in Pure C11</strong>
+    <strong>A zero-dependency, pure-C11 AI agent and native Android reverse-engineering toolkit —<br/>
+    decode, edit, and rebuild APKs without Java, JDK, or apktool.</strong>
   </p>
   <p align="center">
-    <a href="#-key-features">Key Features</a> •
-    <a href="#-quick-start">Quick Start</a> •
-    <a href="#-documentation">Documentation</a> •
-    <a href="CHANGELOG.md">Changelog</a> •
-    <a href="CONTRIBUTING.md">Contributing</a>
+    <a href="https://github.com/GrandpaEJ/Agent-EJ/releases"><img alt="version" src="https://img.shields.io/badge/version-v0.9.4-blue"></a>
+    <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-blue"></a>
+    <img alt="language" src="https://img.shields.io/badge/language-C11-00599C">
+    <img alt="dependencies" src="https://img.shields.io/badge/dependencies-zero-brightgreen">
+    <img alt="platform" src="https://img.shields.io/badge/platform-Linux%20%7C%20Termux%20(Android)-lightgrey">
+    <img alt="status" src="https://img.shields.io/badge/status-alpha-orange">
+  </p>
+  <p align="center">
+    <a href="#key-features">Features</a> •
+    <a href="#why-agent-ej">Why Agent-EJ</a> •
+    <a href="#quick-start">Quick Start</a> •
+    <a href="#apk-decode--rebuild-pipeline">APK Pipeline</a> •
+    <a href="#documentation">Documentation</a> •
+    <a href="#benchmarks--footprint">Benchmarks</a> •
+    <a href="CHANGELOG.md">Changelog</a>
   </p>
 </div>
 
 ---
 
-## ⚡ Overview
+## Overview
 
-**Agent-EJ** is an alpha-stage, autonomous AI agent written from scratch in pure C11. Operating with an extremely tiny RAM footprint (~1.7 MB) and compiling to a static binary with **zero dynamic library dependencies**, it is highly optimized for deployment on VPS, Debian/Ubuntu servers, and Termux (Android).
+**Agent-EJ** is an autonomous AI agent *and* a from-scratch Android reverse-engineering suite, both written in pure C11 with **no external runtime dependencies** — no Java, no Python, no JVM, no `libc++`. It compiles to a single static binary and runs comfortably on a $5 VPS, a Debian/Ubuntu server, or directly on an Android phone via Termux.
 
-Beyond being an AI orchestrator, Agent-EJ is also a **Full-Fledged Native Android Reverse Engineering Suite**. It features a high-performance Dalvik Smali compiler and DEX parser, enabling Android APK modifications without requiring any Java/JDK installations.
+Most APK tooling (`apktool`, `baksmali`/`smali`, `jadx`) requires a JVM and hundreds of megabytes of dependencies. Agent-EJ implements the same binary formats — **DEX, Smali, AXML, ARSC, ZIP, JAR/APK signing** — natively in C, so the full decode → edit → rebuild → sign workflow runs with a ~3 MB resident set and a binary under 300 KB.
 
-## 🌟 Key Features
+## Why Agent-EJ
 
-### 🧠 Autonomous AI Orchestration
-- **Dynamic Skill Engine**: Register new tools dynamically by dropping JSON schemas (`skills/<name>.json`) and executable scripts into the `skills/` directory—no recompilation needed!
-- **Persistent Memory Store (RAG)**: Employs a lightweight file-based keyword database for long-term fact serialization using `memorize` and `recall`.
-- **Dynamic Context Truncation**: Automatically strips large tool outputs from logs older than 3 turns to optimize context length, slashing LLM input token costs by up to 70%.
-- **Multi-Session Isolation**: Isolates and persists individual chat sessions by CLI and Telegram `chat_id`.
+- **No JVM required** — decode and rebuild real-world APKs on a headless server, a Docker container, or a phone, with nothing installed beyond the binary itself.
+- **No dependency hell** — statically linked, zero shared libraries, zero `pip install`/`npm install` chains.
+- **Built for automation** — every capability is a scriptable CLI tool (`./agent-ej tool <name>`) or an LLM-callable function, so it drops straight into CI pipelines or autonomous agent workflows.
+- **Stress-tested on real apps** — the Smali/DEX/APK pipeline has been round-trip tested (decode → rebuild → decode) against dozens of real-world obfuscated APKs (ProGuard/R8, Ijiami packer, StringFog string encryption, 76-way multidex, Unicode-obfuscated identifiers) with byte-level content diffing, not just file counts. See [CHANGELOG.md](CHANGELOG.md) for the full bug-hunting history.
 
-### 🚀 High-Performance Daemonization
-- **POSIX Daemonization**: Fully daemonizes background Telegram bots via double-forking (`--daemon` flag).
-- **Process Management**: Automatically maps PID files (`agent-ej.pid`) and outputs structured diagnostic JSON logs (`agent-ej.log`) for easy monitoring.
+## Key Features
 
-### 📱 Zero-Java Android Reverse Engineering
-Agent-EJ includes an embedded, high-performance Dalvik compiler and DEX parser cleanly isolated inside `src/android/`:
-- **Smali Assembler**: Assemble `.smali` to Dalvik Executables (`classes.dex`).
-- **DEX Disassembler**: Disassemble `classes.dex` back into `.smali` files.
-- *(In Progress)*: Native AXML, ARSC, APK Signer, and ZipAlign integration. See [Architecture Roadmap](docs/RE_ARCHITECTURE.md) for details.
+### Zero-Java Android Reverse Engineering
+A complete, native APK round-trip pipeline isolated inside [`src/android/`](src/android/):
 
-## 📖 Documentation
+| Format | Capability | Status |
+|---|---|---|
+| **DEX ⇄ Smali** | Full disassembler and assembler — byte-identical with `baksmali.jar`/`smali.jar` output | ✅ Complete |
+| **AXML** | Binary XML decode *and* encode (`AndroidManifest.xml`, layouts, drawables) | ✅ Complete |
+| **ARSC** | `resources.arsc` decode to editable `res/values/*.xml`, and re-compile edits back | ✅ Complete |
+| **ZIP / APK container** | Extraction, packing, zipalign (4-byte alignment) | ✅ Complete |
+| **APK Signing** | JAR v1 (SHA-1/SHA-256, apksigner-compatible digest selection) and APK Signature Scheme v2/v3 | ✅ Complete |
+| **ADB client** | Native Android Debug Bridge protocol — install, push/pull, shell, logcat, uninstall | ✅ Complete |
 
-For detailed guides and deep dives into the project's ecosystem, please refer to our sub-documentation files:
+The entire pipeline runs **in-process** — no `apktool`, no `jarsigner`, no shelling out to Java — and decodes/rebuilds multidex apps with 10,000+ classes while staying stable across repeated round trips.
 
-- 🏗️ **[AGENTS.md](AGENTS.md)** — Core Architecture & Refactoring Manifest (Memory-First constraints, Semantic Folder Structures).
-- 🔄 **[RE_ARCHITECTURE.md](docs/RE_ARCHITECTURE.md)** — Android Reverse Engineering implementation details and roadmaps.
-- 📜 **[CHANGELOG.md](CHANGELOG.md)** — Release history and feature additions.
-- 🤝 **[CONTRIBUTING.md](CONTRIBUTING.md)** — Pull Request, bug reporting, and coding guidelines.
+### Autonomous AI Orchestration
+- **Dynamic Skill Engine** — register new tools at runtime by dropping a JSON schema (`skills/<name>.json`) and an executable script into `skills/`, no recompilation needed.
+- **Persistent memory (RAG)** — lightweight file-based keyword store for long-term fact recall (`memorize` / `recall`).
+- **Context-cost optimization** — automatically truncates stale tool output from the conversation log, cutting LLM input token costs by up to 70%.
+- **Multi-session isolation** — separate, persisted conversation state per CLI session or Telegram `chat_id`.
 
-## ⚙️ Configuration (`.env`)
+### High-Performance Daemon Mode
+- POSIX double-fork daemonization for long-running Telegram bots (`--daemon`).
+- PID tracking (`agent-ej.pid`) and structured JSON diagnostic logs (`agent-ej.log`).
 
-Configure the agent's behavior via a `.env` file in the workspace root:
+## Quick Start
+
+### Build
+
+```bash
+# Release build — optimized, stripped, statically linked (~290 KB)
+make release
+
+# Or a minimal embedded build (~80 KB, CLI tools only)
+make pico
+```
+
+See [Compilation & Installation](#compilation--installation) below for all build targets.
+
+### Run the AI agent
+
+```bash
+# Interactive CLI
+./agent-ej cli
+
+# Telegram bot, foreground
+./agent-ej telegram
+
+# Telegram bot, background daemon
+./agent-ej telegram --daemon
+kill $(cat agent-ej.pid)   # stop it later
+```
+
+### Use the APK/DEX tools directly — no AI required
+
+```bash
+# Decode an APK into editable smali + resources
+./agent-ej tool decode_apk apk=app.apk out=app_src
+
+# ...edit app_src/smali/**/*.smali or app_src/res/values/*.xml...
+
+# Rebuild, align, and sign in one step
+./agent-ej tool build_apk src_dir=app_src out_apk=app_rebuilt.apk key=keys/testkey.pem
+```
+
+Run `./agent-ej tools` to list every available tool.
+
+## APK Decode → Rebuild Pipeline
+
+```
+app.apk
+   │  decode_apk
+   ▼
+app_src/
+├── AndroidManifest.xml      (AXML → human-readable XML)
+├── res/values/*.xml         (resources.arsc → editable XML)
+├── smali/, smali_classes2/… (classes*.dex → .smali, one dir per DEX)
+└── ...assets, lib/, META-INF/ (copied through unchanged)
+   │  edit smali / resource XML as needed
+   │  build_apk
+   ▼
+app_rebuilt.apk              (re-assembled, zipaligned, v1+v2/v3 signed)
+```
+
+Both directions are implemented natively — disassembly, assembly, resource recompilation, zipalign, and signing all happen inside the same binary with no intermediate Java process.
+
+## Configuration (`.env`)
 
 ```ini
 # Core Configuration
 SAFE_MODE=1                 # 1 = Prompt user for dangerous tool actions, 0 = fully autonomous
 SANDBOX_RESTRICT=0          # 1 = Strict sandboxing (only reads/writes in current workspace)
 
-# API Connectivity (OpenAI Format Compatible)
+# API Connectivity (OpenAI-format compatible)
 API_BASE_URL=https://text.pollinations.ai/openai
-API_KEY=your-api-key-here   # (Leave empty if none required)
+API_KEY=your-api-key-here   # leave empty if none required
 API_MODEL=openai
 
 # Telegram Daemon Settings
@@ -66,51 +142,32 @@ TELEGRAM_BOT_TOKEN=your-telegram-token
 ALLOWED_TELEGRAM_USER_IDS=12345678,98765432
 ```
 
-## 🛠️ Compilation & Installation
+## Compilation & Installation
 
-Build targets using static compilation with `zig cc` (or standard `gcc`):
+Agent-EJ builds with `zig cc` (recommended, for painless static cross-compilation) or standard `gcc`/`clang`.
 
 ```bash
 # Clean previous builds
 make clean
 
-# Debug build (6.2 MB - full debug info, unoptimized)
-make        
+# Debug build — full debug info, unoptimized (~6 MB)
+make
 
-# Release build (286 KB - optimized, stripped, static)
+# Release build — optimized, stripped, static (~290 KB)
 make release
 
-# Nano build (single-command compile, no obj/)
-make nano   
+# Nano build — single-command compile, no obj/ directory
+make nano
 
-# Pico build (80 KB - minimal embedded CLI)
-make pico   
+# Pico build — minimal embedded CLI, no AI/Telegram features (~80 KB)
+make pico
 ```
 
-## 🚀 Quick Start
+## Extending with Custom Skills
 
-### Interactive CLI Mode
-```bash
-./agent-ej cli
-```
+Add a new tool in seconds — no recompilation required.
 
-### Background Telegram Daemon Mode
-To start the Telegram bot in the background:
-```bash
-./agent-ej telegram --daemon
-```
-*Note: The background process forks, writes its PID to `agent-ej.pid`, and outputs logs to `agent-ej.log`.*
-
-To gracefully stop the daemon:
-```bash
-kill $(cat agent-ej.pid)
-```
-
-## 🧩 Extending with Custom Skills
-
-Agent-EJ can be extended in seconds. To add a new tool (e.g., `get_weather`):
-
-1. **Create a Schema Definition (`skills/get_weather.json`)**:
+1. **Define the schema** — `skills/get_weather.json`:
    ```json
    {
      "type": "function",
@@ -120,7 +177,7 @@ Agent-EJ can be extended in seconds. To add a new tool (e.g., `get_weather`):
        "parameters": {
          "type": "object",
          "properties": {
-           "city": {"type": "string", "description": "City name"}
+           "city": { "type": "string", "description": "City name" }
          },
          "required": ["city"]
        }
@@ -128,49 +185,59 @@ Agent-EJ can be extended in seconds. To add a new tool (e.g., `get_weather`):
    }
    ```
 
-2. **Create the Executable Script (`skills/get_weather.sh`)**:
+2. **Write the executable** — `skills/get_weather.sh`:
    ```bash
    #!/bin/bash
    curl -s "https://wttr.in/${ARG_city}?format=3"
    ```
 
-3. **Make it Executable**:
+3. **Make it executable**:
    ```bash
    chmod +x skills/get_weather.sh
    ```
 
-Agent-EJ automatically detects, registers, and executes the tool. LLM arguments are injected securely as environment variables prefixed with `ARG_` (e.g., `$ARG_city`).
+Agent-EJ auto-detects, registers, and executes the tool. LLM-supplied arguments are injected as environment variables prefixed with `ARG_` (e.g. `$ARG_city`).
 
-## 📊 Benchmarks & Footprint
+## Benchmarks & Footprint
 
-Agent-EJ is engineered for maximum efficiency. Below are the current benchmarks (v0.8.0 release, `make release`) running on a standard Linux environment:
+Measured on a standard Linux environment, `make release` build:
 
 | Metric | Value |
-|--------|-------|
-| **Static binary** | **293 KB** (full feature set, stripped, static musl) |
+|---|---|
+| **Static binary** | **293 KB** (full feature set, stripped, static) |
 | **Base RSS (idle)** | **3.1 MB** |
 | **smali_flow — single method** | **5–7 ms** |
 | **smali_flow — 165 methods / 41 classes** | **82–97 ms** |
-| **disasm_dex — 113 classes → smali files** | **24–37 ms** |
+| **disasm_dex — 113 classes → smali** | **24–37 ms** |
 | **smali_assemble — 113 classes → classes.dex** | **197–258 ms** |
+| **decode_apk — 17,131-class, 23.6 MB APK** | **~57 s**, stable across 3 independent decodes |
 | **Peak RSS (smali_assemble)** | **87 MB** |
 
-## 📲 Dalvik & Smali Pipelines
+The DEX/Smali/APK pipeline is continuously stress-tested against real-world, obfuscated, multi-dex Android applications — see [CHANGELOG.md](CHANGELOG.md) for detailed before/after findings from each testing round.
 
-To interact with Android binaries without installing Java:
+## Documentation
 
-**Assemble Smali to DEX:**
-```bash
-./agent-ej tool smali_assemble src_dir=path/to/smali out_dex=path/to/classes.dex
-```
+| Doc | Covers |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Core architecture & refactoring manifest — memory-first constraints, module layout, the 250-LOC file rule |
+| [docs/RE_ARCHITECTURE.md](docs/RE_ARCHITECTURE.md) | Android reverse-engineering internals and design rationale |
+| [docs/DEX_SMALI_INTERNALS.md](docs/DEX_SMALI_INTERNALS.md) | DEX format and Smali assembler/disassembler internals |
+| [docs/AXML_INTERNALS.md](docs/AXML_INTERNALS.md) | Binary XML (AXML) parser/encoder internals |
+| [docs/ARSC_INTERNALS.md](docs/ARSC_INTERNALS.md) | `resources.arsc` format and recompilation internals |
+| [docs/APK_SIGNER.md](docs/APK_SIGNER.md) | JAR v1 / APK Signature Scheme v2/v3 signing internals |
+| [docs/CLI_TOOLS_GUIDE.md](docs/CLI_TOOLS_GUIDE.md) | Full CLI tool reference (ADB, APK, ZIP, RE utilities) |
+| [docs/AGENT_CORE.md](docs/AGENT_CORE.md) | AI agent loop, skills engine, memory, sessions |
+| [CHANGELOG.md](CHANGELOG.md) | Full release history, including every bug found/fixed during stress-testing |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Bug reports, pull requests, and coding guidelines |
 
-**Disassemble DEX to Smali:**
-```bash
-./agent-ej tool read_dex path/to/classes.dex
-```
+## Project Status
 
----
+Agent-EJ is in **active alpha development**. The DEX/Smali/AXML/ARSC/APK pipeline is functionally complete and has round-tripped dozens of real-world, differently-obfuscated APKs (including 76-way multidex and 17,000+ class applications) with no crashes, no corruption, and byte-stable repeat decodes. It is not yet labeled "beta" — each new, sufficiently different real-world APK has continued to surface edge cases, which [CHANGELOG.md](CHANGELOG.md) documents in full as they're found and fixed. Treat it as a fast-moving, actively-hardened alpha rather than a finished product.
 
-## 📄 License
+## Contributing
+
+Bug reports, enhancement proposals, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, and [AGENTS.md](AGENTS.md) for the architectural rules (max 250 LOC per file, no global state, zero-copy parsing) every change must follow.
+
+## License
 
 Agent-EJ is open-source software licensed under the **[GNU General Public License v3.0](LICENSE)**.
