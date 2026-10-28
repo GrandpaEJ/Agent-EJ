@@ -220,7 +220,7 @@ static const op_entry optab[] = {
     FMT(0xCE, F_12x, K_NONE, "div-double/2addr"),
     FMT(0xCF, F_12x, K_NONE, "rem-double/2addr"),
     FMT(0xD0, F_22s, K_NONE, "add-int/lit16"),
-    FMT(0xD1, F_22s, K_NONE, "rsub-int/lit16"),
+    FMT(0xD1, F_22s, K_NONE, "rsub-int"), /* opcode 0xD1 drops the /lit16 suffix in real smali output; see smali_optab.h */
     FMT(0xD2, F_22s, K_NONE, "mul-int/lit16"),
     FMT(0xD3, F_22s, K_NONE, "div-int/lit16"),
     FMT(0xD4, F_22s, K_NONE, "rem-int/lit16"),

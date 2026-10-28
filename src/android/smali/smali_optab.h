@@ -127,7 +127,7 @@ static const smali_op_t smali_optab[] = {
     {0x77, 15, 4, "invoke-static/range"},
     {0x78, 15, 4, "invoke-interface/range"},
     {0xD0, 22, 0, "add-int/lit16"},
-    {0xD1, 22, 0, "rsub-int/lit16"},
+    {0xD1, 22, 0, "rsub-int"}, /* 0xD1 is spelled without the /lit16 suffix in real smali output; 0xD9 keeps rsub-int/lit8 */
     {0xD2, 22, 0, "mul-int/lit16"},
     {0xD3, 22, 0, "div-int/lit16"},
     {0xD4, 22, 0, "rem-int/lit16"},
