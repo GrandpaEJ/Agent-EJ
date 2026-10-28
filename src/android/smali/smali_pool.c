@@ -346,8 +346,13 @@ static void pool_add_annotation_elem(smali_ctx_def_t *ctx, smali_annotation_elem
          * the writer and the comparator both require that shape. */
         pool_add_enum_ref(ctx, el->value_str);
     }
-    if (el->value_type == VALUE_TYPE_TYPE && el->value_str)
+    if (el->value_type == VALUE_TYPE_TYPE && el->value_str) {
+        /* A type_ids entry is resolved by string-pool lookup at write time
+         * (smali_writer.c); every type added here must also exist in the
+         * string pool or that lookup returns -1 and corrupts type_ids. */
         smali_pool_add(&ctx->types, el->value_str);
+        smali_pool_add(&ctx->strings, el->value_str);
+    }
     if (el->value_type == VALUE_TYPE_STRING && el->value_str)
         smali_pool_add(&ctx->strings, el->value_str);
     if (el->value_type == VALUE_TYPE_METHOD && el->value_str) {
@@ -667,8 +672,10 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
                                 free(nm);
                             }
                         }
-                        if (node->elem.value_type == VALUE_TYPE_TYPE && node->elem.value_str)
+                        if (node->elem.value_type == VALUE_TYPE_TYPE && node->elem.value_str) {
                             smali_pool_add(&ctx->types, node->elem.value_str);
+                            smali_pool_add(&ctx->strings, node->elem.value_str);
+                        }
                         if (node->elem.value_type == VALUE_TYPE_METHOD && node->elem.value_str) {
                             char *ar = strstr(node->elem.value_str, "->");
                             char *paren = ar ? strchr(ar, '(') : NULL;
