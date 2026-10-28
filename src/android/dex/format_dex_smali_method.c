@@ -209,10 +209,15 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         (void)start_line;
         /* param names: uleb128 string_id indices */
         for (uint32_t pi = 0; pi < params_sz && pi < 256; pi++) {
-            uint32_t name_idx;
-            smali_uleb(dp, &name_idx, &dp);
-            if (name_idx < (uint32_t)ctx->sp.count && ctx->sp.strings[name_idx]) {
-                param_names[pi] = strdup(ctx->sp.strings[name_idx]);
+            uint32_t name_idx_p1;
+            smali_uleb(dp, &name_idx_p1, &dp);
+            /* uleb128p1: 0 means NO_INDEX (no name for this parameter),
+             * otherwise the real string index is the value minus one. */
+            if (name_idx_p1 != 0) {
+                uint32_t name_idx = name_idx_p1 - 1;
+                if (name_idx < (uint32_t)ctx->sp.count && ctx->sp.strings[name_idx]) {
+                    param_names[pi] = strdup(ctx->sp.strings[name_idx]);
+                }
             }
             param_name_count++;
         }
@@ -258,13 +263,15 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         smali_sa(s, "\n");
         for (int pi = 0; pi < param_name_count; pi++) {
             if (param_names[pi]) {
-                uint32_t locals = (uint32_t)regs - (uint32_t)ins;
+                /* pi indexes the "in" (parameter) registers only; the
+                 * directive names the absolute register, which starts
+                 * after the method's local registers (regs - ins of them). */
+                uint32_t first_in = (uint32_t)regs - (uint32_t)ins;
                 /* The debug-info name is arbitrary MUTF-8 and may itself
                  * contain '"' or '\\' (seen in the wild from obfuscators
                  * salting debug names to break naive disassemblers) —
                  * escape it the same way every other string is escaped. */
-                smali_sf(s, "    .param p%d, \"%s\"\n", pi, smali_escape_str(param_names[pi]));
-                (void)locals;
+                smali_sf(s, "    .param p%u, \"%s\"\n", first_in + (uint32_t)pi, smali_escape_str(param_names[pi]));
                 free(param_names[pi]);
             }
         }

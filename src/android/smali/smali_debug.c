@@ -31,15 +31,19 @@ uint32_t write_debug_info(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def
     align_4(b);
     uint32_t offset = b->len;
 
-    int start_line = 1;
+    /* 0 is a real line number (D8 emits it for synthetic lambdas/bridges),
+     * so the search and the "none found" fallback must not collapse it
+     * into the no-line-info case the way a plain "> 0" check would. */
+    int start_line = -1;
     for (uint32_t i = 0; i < m->insns_count; i++) {
-        if (m->insns[i].line_number > 0) {
+        if (m->insns[i].line_number >= 0) {
             start_line = m->insns[i].line_number;
             break;
         }
     }
+    if (start_line < 0) start_line = 1;
 
-    buf_write_uleb128(b, (uint32_t)(start_line > 0 ? start_line : 1));
+    buf_write_uleb128(b, (uint32_t)start_line);
     buf_write_uleb128(b, m->param_name_count);
     for (uint32_t pi = 0; pi < m->param_name_count; pi++) {
         uint32_t idx = smali_pool_find(&ctx->strings, m->param_names[pi]);
@@ -83,8 +87,10 @@ uint32_t write_debug_info(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def
     for (uint32_t i = 0; i < m->insns_count; i++) {
         int ln = m->insns[i].line_number;
         uint32_t addr_diff = insn_offsets[i] - cur_addr;
-        if (ln <= 0) {
-            /* No line number for this instruction: only the address moves. */
+        if (ln < 0) {
+            /* No line number for this instruction (unset is -1; 0 is a
+             * real line number D8 emits for synthetic lambdas/bridges):
+             * only the address moves. */
             if (addr_diff > 0) {
                 buf_write_u8(b, 0x01);
                 buf_write_uleb128(b, addr_diff);

@@ -60,12 +60,32 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
             char *reg_tok = smali_next_token(&start);
             char *name_tok = smali_next_token(&start);
             if (reg_tok && name_tok) {
-                m->param_names = realloc(m->param_names, (m->param_name_count + 1) * sizeof(char *));
-                m->param_names[m->param_name_count++] = strdup(name_tok);
-                m->param_annots = realloc(m->param_annots, m->param_name_count * sizeof(smali_annotation_t*));
-                m->param_annot_counts = realloc(m->param_annot_counts, m->param_name_count * sizeof(uint32_t));
-                m->param_annots[m->param_name_count - 1] = NULL;
-                m->param_annot_counts[m->param_name_count - 1] = 0;
+                /* ".param pN, ..." names the Nth register, not the Nth
+                 * named parameter: a leading parameter with no debug name
+                 * is simply skipped in the source. The debug_info table on
+                 * disk is positional (one uleb128p1 per "in" register, with
+                 * 0 = NO_INDEX for an unnamed one), so the slot this name
+                 * belongs in is (register number - first "in" register),
+                 * not the order .param directives happen to appear in. */
+                uint32_t first_in = m->registers_count - m->ins_count;
+                char *digits = reg_tok + 1; /* skip 'p' */
+                uint32_t reg_num = (uint32_t)atoi(digits);
+                uint32_t idx = reg_num >= first_in ? reg_num - first_in : 0;
+                if (idx >= m->param_name_count) {
+                    uint32_t old_count = m->param_name_count;
+                    uint32_t new_count = idx + 1;
+                    m->param_names = realloc(m->param_names, new_count * sizeof(char *));
+                    m->param_annots = realloc(m->param_annots, new_count * sizeof(smali_annotation_t*));
+                    m->param_annot_counts = realloc(m->param_annot_counts, new_count * sizeof(uint32_t));
+                    for (uint32_t z = old_count; z < new_count; z++) {
+                        m->param_names[z] = NULL;
+                        m->param_annots[z] = NULL;
+                        m->param_annot_counts[z] = 0;
+                    }
+                    m->param_name_count = new_count;
+                }
+                free(m->param_names[idx]);
+                m->param_names[idx] = strdup(name_tok);
                 free(name_tok);
                 free(reg_tok);
             } else {
