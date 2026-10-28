@@ -1,9 +1,11 @@
 # Agent-EJ — Handoff (after the release of v0.9.0)
 
-**Repo:** `GrandpaEJ/Agent-EJ` · **Branch:** `main` (= `origin/main`) at `21f6f89` = release **v0.9.0**, tag pushed.
+**Repo:** `GrandpaEJ/Agent-EJ` · **Branch:** `main` (= `origin/main`) at `7f100f3`, tree clean, 0 open issues / 0 open PRs.
+**Latest release:** **v0.9.0** at `21f6f89`, tag pushed. Two commits landed after it: `f152ed8` (the project rename, PR #33) and `7f100f3` (rename path fixes) — neither changes behaviour, so v0.9.0 is the last thing worth tagging.
 **Name:** the project was renamed **Agent-X → Agent-EJ** (repo, URL, binary `agent-ej`, all docs) after v0.9.0; GitHub 301-redirects the old URL. The **local clone is still `…/c-lang/Agent-X`** — renaming the cwd was deferred, see §7 item 7.
 
-**Status:** **Every open issue is closed** (#5 #7 #8 #13 #22 #24 #25 #26 #28 #30). Nothing is in progress; no branch is unpushed.
+**Status:** **Every open issue is closed** (#5 #7 #8 #13 #22 #24 #25 #26 #28 #30). No work in progress, nothing unpushed, tree clean.
+The only outstanding items are housekeeping, in §7: **9 stale branches still on the remote** (8 of them fully merged — item 6) and the **local clone still named `Agent-X`** (item 7).
 
 The previous handoff's "next steps" are settled:
 - **v1 (JAR) signing path** (issue #30) → v0.8.4, PR #31 squash `c8dbd65`.
@@ -67,6 +69,19 @@ Remaining items are §7 below.
 v0.9.0 closed no issue: it shipped the handoff's designated next feature (§5.5).
 
 ## 2. Commits
+
+### Project rename (post-v0.9.0) — squash merge `f152ed8`, follow-up `7f100f3`
+
+```
+7f100f3 docs: fix paths the project rename rewrote incorrectly
+f152ed8 chore: rename the project from Agent-X to Agent-EJ (#33)
+```
+Branch (deleted on merge), in order:
+```
+5806b97 docs(changelog): record the rename to Agent-EJ
+3bf70cf chore: rename the project from Agent-X to Agent-EJ
+```
+Repo, remote URL and the binary were renamed together; GitHub 301-redirects the old URL.
 
 ### v0.9.0 (XML → ARSC compiler) — squash merge `921855f` on main, release `21f6f89`
 
@@ -315,10 +330,10 @@ Then rebuild `make release` for the real binary. Warning count only from a cold 
 | 3 | **Small File Rule violations — 20 `.c` files over 250 LOC**, not 4. Worst: `smali_writer.c` 1233, `smali_pool.c` 767, `format_dex_smali_method.c` 689, `format_axml_encode.c` 583, `smali_insn_parser.c` 526, `smali_parser.c` 508, `format_dex_disasm.c` 420, `agent.c` 387, `format_axml_output.c` 364, `format_arsc_toml.c` 347, `tool_dex.c` 333, `format_apk_decode_arsc.c` 327, `format_apk_build.c` 305 (grew +4 in v0.9.0; the compiler's hook was deliberately put in its own 47-line file to stop it growing). Full list: `find src -name '*.c' \| xargs wc -l \| sort -rn \| awk '$1>250'` | open |
 | 4 | `smali_pool.c` `comp_field_key`/`comp_method_key` strict-weak-ordering (LOW, PR review finding) | open |
 | 5 | The 53 pre-existing warnings (files untouched so far) | open |
-| 6 | Delete the kept branch: `git push origin --delete fix/open-issues-13-25-24-5-22-8` (its commits are cited in issue comments; decide when those comments no longer need them) | open |
+| 6 | **Delete the 9 stale remote branches.** Measured with `git rev-list --count origin/main..origin/<branch>`: 8 are **`ahead=0`** — every commit already in `main`, so deleting loses nothing: `feat/apk-orchestration`, `feat/axml-encoder`, `feat/native-signer`, `feat/zipalign`, `feature/phase2-annotations`, `refactor/small-files`, `refactor/small-files-apk`, `smali2dex`. The ninth, `fix/open-issues-13-25-24-5-22-8`, is **`ahead=18`** *and* has a local copy at `c1a75da` (`git branch -vv`); its commits are cited in issue comments, so decide when those comments no longer need them. One command each: `git push origin --delete <branch>`. | open |
 | 7 | **Rename the local clone** `…/c-lang/Agent-X` → `Agent-EJ`. Deferred: renaming the cwd mid-session breaks every absolute path used by the running session, so do it from a fresh shell, then update the two `cd` lines in §6. Everything else (repo, remote, binary, docs) is renamed. | open |
 
-Suggested order: **3 / 4 / 5** as refactors (no open feature work remains), 6 whenever.
+Suggested order: **6** first — it is nine `git push origin --delete` commands and eight of them are provably free — then **7** from a fresh shell, then **3 / 4 / 5** as refactors. No open feature work remains.
 The only feature-shaped gap left in the APK pipeline is the reverse of §5.5: the
 decoder's *file* side (it writes `res/<type>/…` summaries for non-value types and
 packs the whole `res/` tree of raw XML into the built APK) — out of scope for
