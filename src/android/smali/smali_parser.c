@@ -339,16 +339,40 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                             p = save_p; free(inner_tok); break;
                         }
                         if (strcmp(inner_tok, ".annotation") == 0) {
-                            /* The block belongs to the field only when the
-                             * ".end field" terminator closes it. Without that
-                             * terminator it is a class level annotation, which
-                             * is how the reference assembler reads it too. */
-                            smali_annotation_t ann;
-                            memset(&ann, 0, sizeof(ann));
-                            ann.visibility = 1;
-                            if (smali_parse_annot_block(&p, &ann, cur_line) != 0) {
-                                smali_annot_free(&ann);
-                                free(inner_tok); free(tok); free(text_copy);
+                            /* A field may carry more than one ".annotation"
+                             * block before its terminator (e.g. a @GuardedBy
+                             * plus a compiler-generated generic Signature).
+                             * Collect the whole run first, then decide once
+                             * whether it belongs to the field (".end field"
+                             * closes it) or to the class (anything else is
+                             * how the reference assembler reads it too). */
+                            free(inner_tok);
+                            smali_annotation_t pending[MAX_ANNOTS];
+                            uint32_t pending_count = 0;
+                            int parse_failed = 0;
+                            for (;;) {
+                                if (pending_count >= MAX_ANNOTS) break;
+                                memset(&pending[pending_count], 0, sizeof(smali_annotation_t));
+                                pending[pending_count].visibility = 1;
+                                if (smali_parse_annot_block(&p, &pending[pending_count], cur_line) != 0) {
+                                    parse_failed = 1;
+                                    pending_count++;
+                                    break;
+                                }
+                                pending_count++;
+                                char *look_next = p;
+                                char *nxt = next_token_over_lines(&look_next);
+                                if (nxt && strcmp(nxt, ".annotation") == 0) {
+                                    free(nxt);
+                                    p = look_next;
+                                    continue;
+                                }
+                                if (nxt) free(nxt);
+                                break;
+                            }
+                            if (parse_failed) {
+                                for (uint32_t z = 0; z < pending_count; z++) smali_annot_free(&pending[z]);
+                                free(tok); free(text_copy);
                                 return -1;
                             }
                             char *after_block = p;
@@ -360,17 +384,18 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                                               strcmp(end_sub, "field") == 0;
                             if (end_tok) free(end_tok);
                             if (end_sub) free(end_sub);
-                            free(inner_tok);
                             if (closes_field) {
-                                annot_push(&field->annots, &field->annot_count,
-                                           &field->annot_cap, &ann);
+                                for (uint32_t z = 0; z < pending_count; z++)
+                                    annot_push(&field->annots, &field->annot_count,
+                                               &field->annot_cap, &pending[z]);
                                 p = look;
                                 continue;
                             }
-                            /* A class level annotation: hand it over and let
-                             * the class level loop continue after the block. */
-                            annot_push(&curr->annots, &curr->annot_count,
-                                       &curr->annot_cap, &ann);
+                            /* A class level annotation run: hand it over and
+                             * let the class level loop continue after it. */
+                            for (uint32_t z = 0; z < pending_count; z++)
+                                annot_push(&curr->annots, &curr->annot_count,
+                                           &curr->annot_cap, &pending[z]);
                             p = after_block;
                             break;
                         }

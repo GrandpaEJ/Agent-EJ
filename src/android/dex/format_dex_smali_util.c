@@ -56,7 +56,7 @@ int smali_sf(smali_sb *s, const char *fmt, ...) {
 }
 
 /* Decodes MUTF-8 and escapes like baksmali: only 0x20..0x7e stay literal, the rest is \uXXXX. */
-static const char *smali_escape_str(const char *raw) {
+const char *smali_escape_str(const char *raw) {
     static char *buf; static size_t cap;
     size_t need = strlen(raw) * 6 + 1;
     if (need > cap) {

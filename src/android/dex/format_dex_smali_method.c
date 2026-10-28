@@ -259,7 +259,11 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         for (int pi = 0; pi < param_name_count; pi++) {
             if (param_names[pi]) {
                 uint32_t locals = (uint32_t)regs - (uint32_t)ins;
-                smali_sf(s, "    .param p%d, \"%s\"\n", pi, param_names[pi]);
+                /* The debug-info name is arbitrary MUTF-8 and may itself
+                 * contain '"' or '\\' (seen in the wild from obfuscators
+                 * salting debug names to break naive disassemblers) —
+                 * escape it the same way every other string is escaped. */
+                smali_sf(s, "    .param p%d, \"%s\"\n", pi, smali_escape_str(param_names[pi]));
                 (void)locals;
                 free(param_names[pi]);
             }
