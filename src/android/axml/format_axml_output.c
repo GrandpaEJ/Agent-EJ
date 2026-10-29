@@ -1,4 +1,5 @@
 #include "format_axml_internal.h"
+#include "format_axml_enum.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,9 +76,18 @@ static const char *get_str(axml_ctx *ctx, int idx) {
     return ctx->pool.strings[idx];
 }
 
-static const char *get_ns_prefix(const char *uri) {
+/* Prefix the file itself declared for uri (START_NAMESPACE: ns=prefix,
+ * name=uri). Matching on strstr(uri, "android") also caught res-auto, so
+ * every app:* attribute was written back as android:*. */
+static const char *get_ns_prefix(axml_ctx *ctx, const char *uri) {
     if (!uri) return NULL;
-    if (strstr(uri, "android")) return "android";
+    for (int i = 0; i < ctx->event_count; i++) {
+        if (ctx->event_types[i] != 0) continue;
+        const char *u = get_str(ctx, ctx->event_name[i]);
+        const char *p = get_str(ctx, ctx->event_ns[i]);
+        if (u && p && p[0] && strcmp(u, uri) == 0) return p;
+    }
+    if (strcmp(uri, AXML_ANDROID_NS) == 0) return "android";
     return NULL;
 }
 
@@ -162,7 +172,7 @@ static const char* fmt_flags(const char *an, int32_t val) {
 }
 
 static const char* fmt_typed(uint8_t type, uint32_t data, int raw_idx, const char *an, const arsc_ctx *arsc, uint32_t attr_res_id) {
-    static char buf[64];
+    static char buf[1024]; /* resource names can be long (m3_comp_..._state_layer_opacity) */
     if (type == 0x03 || (type == 0x01 && raw_idx >= 0)) return NULL;
     if (type == 0x01) {
         if (arsc) {
@@ -180,18 +190,9 @@ static const char* fmt_typed(uint8_t type, uint32_t data, int raw_idx, const cha
         snprintf(buf, sizeof(buf), "?ref/0x%08x", data);
         return buf;
     }
-    if (type == 0x04) { float f; memcpy(&f, &data, 4); snprintf(buf, sizeof(buf), "%g", f); return buf; }
-    if (type == 0x05) {
-        uint32_t m = data >> 8, r = (data >> 4) & 3, u = data & 0xf;
-        float v = (float)m / (float)(1 << (r * 2));
-        const char *us = (const char*[]){"px","dp","sp","pt","in","mm"}[u < 6 ? u : 0];
-        snprintf(buf, sizeof(buf), v == (float)(int)v ? "%.1f%s" : "%g%s", v, us);
-        return buf;
-    }
-    if (type == 0x06) {
-        uint32_t m = data >> 8, r = (data >> 4) & 3, u = data & 0xf;
-        float v = (float)m / (float)(1 << (r * 2));
-        snprintf(buf, sizeof(buf), "%g%s", v, u ? "%p" : "%");
+    if (type == 0x04) { float f; memcpy(&f, &data, 4); axml_fmt_float(buf, sizeof(buf), f); return buf; }
+    if (type == 0x05 || type == 0x06) {
+        axml_fmt_complex(buf, sizeof(buf), data, type == 0x06);
         return buf;
     }
     if (type == 0x10) {
@@ -204,7 +205,10 @@ static const char* fmt_typed(uint8_t type, uint32_t data, int raw_idx, const cha
             (void)arsc;
         }
         if (an) {
-            // Dynamic ARSC lookup first (covers ALL framework + app attrs)
+            // Framework attrs: SDK table, the exact inverse of the encoder's
+            const char *fw = axml_fw_enum_name(attr_res_id, data);
+            if (fw) return fw;
+            // Dynamic ARSC lookup (app attrs)
             if (arsc && attr_res_id != 0xFFFFFFFF) {
                 const char *dyn = arsc_attr_enum((arsc_ctx*)arsc, attr_res_id, s);
                 if (dyn) return dyn;
@@ -222,9 +226,23 @@ static const char* fmt_typed(uint8_t type, uint32_t data, int raw_idx, const cha
         return buf;
     }
     if (type == 0x12) return data ? "true" : "false";
-    if (type >= 0x13 && type <= 0x16) { snprintf(buf, sizeof(buf), "#%08x", data); return buf; }
+    /* Colors keep their written width so the encoder picks the same type:
+     * 0x1c #aarrggbb, 0x1d #rrggbb, 0x1e #argb, 0x1f #rgb. */
+    if (type == 0x1c) { snprintf(buf, sizeof(buf), "#%08x", data); return buf; }
+    if (type == 0x1d) { snprintf(buf, sizeof(buf), "#%06x", data & 0xFFFFFF); return buf; }
+    if (type == 0x1e) {
+        snprintf(buf, sizeof(buf), "#%x%x%x%x", (data >> 28) & 0xF, (data >> 20) & 0xF,
+                 (data >> 12) & 0xF, (data >> 4) & 0xF);
+        return buf;
+    }
+    if (type == 0x1f) {
+        snprintf(buf, sizeof(buf), "#%x%x%x", (data >> 20) & 0xF, (data >> 12) & 0xF, (data >> 4) & 0xF);
+        return buf;
+    }
     if (type == 0x11) {
         if (an) {
+            const char *fw = axml_fw_enum_name(attr_res_id, data);
+            if (fw) return fw;
             // Dynamic ARSC lookup
             if (arsc && attr_res_id != 0xFFFFFFFF) {
                 const char *dyn = arsc_attr_enum((arsc_ctx*)arsc, attr_res_id, (int32_t)data);
@@ -270,7 +288,7 @@ char *axml_get_xml(axml_ctx *ctx) {
             if (!name) name = "unknown";
             const char *ns = get_str(ctx, ctx->event_ns[i]);
             if (ns && ns[0]) {
-                const char *p = get_ns_prefix(ns);
+                const char *p = get_ns_prefix(ctx, ns);
                 if (p) {
                     append_fmt(&ctx->xml, &len, &cap, "%s:", p);
                 }
@@ -285,7 +303,7 @@ char *axml_get_xml(axml_ctx *ctx) {
                 append(&ctx->xml, &len, &cap, " ");
                 const char *ans = get_str(ctx, e->attr_ns[a]);
                 if (ans && ans[0]) {
-                    const char *p = get_ns_prefix(ans);
+                    const char *p = get_ns_prefix(ctx, ans);
                     if (p) append_fmt(&ctx->xml, &len, &cap, "%s:", p);
                 }
                 append(&ctx->xml, &len, &cap, an);
@@ -340,7 +358,7 @@ char *axml_get_xml(axml_ctx *ctx) {
             if (!name) name = "unknown";
             const char *ns = get_str(ctx, ctx->event_ns[i]);
             if (ns && ns[0]) {
-                const char *p = get_ns_prefix(ns);
+                const char *p = get_ns_prefix(ctx, ns);
                 if (p)
                     append_fmt(&ctx->xml, &len, &cap, "%s:", p);
             }

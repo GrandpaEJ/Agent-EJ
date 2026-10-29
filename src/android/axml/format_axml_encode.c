@@ -1,28 +1,38 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "format_axml_xml_parser.h"
 #include "format_axml_enum.h"
-#include "axml_res_map.h"
 #include "formats.h"
 
 typedef struct {
     char **strings;
+    uint32_t *ids;   // resource ID per entry, 0 for plain strings
     int count;
     int cap;
 } str_builder;
 
-static int add_string(str_builder *b, const char *str) {
+/* Entries are keyed on (text, resource ID): android:title and app:title are
+ * the same text but different attributes, and the resource map gives each
+ * pool index exactly one ID, so they need separate entries (as aapt2 emits). */
+static int add_string_id(str_builder *b, const char *str, uint32_t id) {
     if (!str) return -1;
     for (int i = 0; i < b->count; i++) {
-        if (strcmp(b->strings[i], str) == 0) return i;
+        if (b->ids[i] == id && strcmp(b->strings[i], str) == 0) return i;
     }
     if (b->count >= b->cap) {
         b->cap = b->cap ? b->cap * 2 : 64;
         b->strings = realloc(b->strings, b->cap * sizeof(char*));
+        b->ids = realloc(b->ids, b->cap * sizeof(uint32_t));
     }
     b->strings[b->count] = strdup(str);
+    b->ids[b->count] = id;
     return b->count++;
+}
+
+static int add_string(str_builder *b, const char *str) {
+    return add_string_id(b, str, 0);
 }
 
 static void free_builder(str_builder *b) {
@@ -30,10 +40,39 @@ static void free_builder(str_builder *b) {
         free(b->strings[i]);
     }
     free(b->strings);
+    free(b->ids);
+}
+
+// Global ARSC context for reverse reference lookups (set via axml_assemble_set_arsc)
+static arsc_ctx *g_enc_arsc = NULL;
+
+void axml_assemble_set_arsc(arsc_ctx *arsc) { g_enc_arsc = arsc; }
+
+// Resolves an attribute's namespace prefix to its URI via the root's xmlns attrs
+static const char *resolve_ns(xml_doc *doc, const char *prefix) {
+    if (!prefix) return NULL;
+    for (xml_attr *a = doc->root->attrs; a; a = a->next) {
+        if (a->ns && strcmp(a->ns, "xmlns") == 0 && a->name && strcmp(a->name, prefix) == 0)
+            return a->value;
+    }
+    return prefix;
+}
+
+/* Binary XML identifies namespaced attributes by resource ID, not name: an
+ * android:* attribute without its framework ID (e.g. authorities, layout_width)
+ * is silently ignored by the platform. App attributes (res-auto) use the
+ * app's own attr IDs from resources.arsc. */
+static uint32_t attr_res_id(xml_doc *doc, const xml_attr *attr) {
+    if (!attr->ns || !attr->name || strcmp(attr->ns, "xmlns") == 0) return 0;
+    const char *uri = resolve_ns(doc, attr->ns);
+    if (uri && strcmp(uri, AXML_ANDROID_NS) == 0) return axml_fw_attr_id(attr->name);
+    if (!g_enc_arsc) return 0;
+    uint32_t rid = arsc_reverse_lookup(g_enc_arsc, "attr", attr->name);
+    return rid == 0xFFFFFFFF ? 0 : rid;
 }
 
 // Recursively walk the AST to collect all unique strings
-static void collect_strings(xml_node *node, str_builder *b) {
+static void collect_strings(xml_doc *doc, xml_node *node, str_builder *b) {
     while (node) {
         if (node->ns) add_string(b, node->ns);
         if (node->name) add_string(b, node->name);
@@ -41,63 +80,31 @@ static void collect_strings(xml_node *node, str_builder *b) {
         xml_attr *attr = node->attrs;
         while (attr) {
             if (attr->ns) add_string(b, attr->ns);
-            if (attr->name) add_string(b, attr->name);
+            if (attr->name) add_string_id(b, attr->name, attr_res_id(doc, attr));
             if (attr->value) add_string(b, attr->value);
             attr = attr->next;
         }
         
-        collect_strings(node->children, b);
+        collect_strings(doc, node->children, b);
         node = node->next;
     }
 }
 
-// Looks up the Android Resource ID for a given string
-static uint32_t get_res_id(const char *name) {
-    int num_entries = sizeof(axml_res_map) / sizeof(axml_res_map[0]);
-    for (int i = 0; i < num_entries; i++) {
-        if (strcmp(axml_res_map[i].name, name) == 0) {
-            return axml_res_map[i].id;
-        }
-    }
-    return 0; // Not found
-}
-
-// Builds the resource map array based on the collected string pool
+// Builds the resource map: Android requires every string that has a resource
+// ID to sit at the start of the pool, so partition ID-carrying entries first.
 static void build_resmap(str_builder *pool, uint32_t **res_ids, int *res_count) {
-    // In AXML, the resource map usually provides IDs for the first N strings.
-    // However, since we just appended strings linearly, attribute names might be anywhere.
-    // Android requires that strings with resource IDs MUST be at the BEGINNING of the string pool.
-    // Wait, this means we must SORT the string pool or partition it!
-    
-    // Let's create a new partitioned string pool where strings WITH resource IDs come first.
     str_builder partitioned = {0};
-    
-    // Pass 1: Strings with resource IDs
-    for (int i = 0; i < pool->count; i++) {
-        uint32_t id = get_res_id(pool->strings[i]);
-        if (id != 0) {
-            add_string(&partitioned, pool->strings[i]);
+    for (int pass = 0; pass < 2; pass++) {
+        for (int i = 0; i < pool->count; i++) {
+            if ((pool->ids[i] != 0) == (pass == 0))
+                add_string_id(&partitioned, pool->strings[i], pool->ids[i]);
         }
+        if (pass == 0) *res_count = partitioned.count;
     }
-    
-    int num_res_ids = partitioned.count;
-    
-    // Pass 2: Remaining strings
-    for (int i = 0; i < pool->count; i++) {
-        uint32_t id = get_res_id(pool->strings[i]);
-        if (id == 0) {
-            add_string(&partitioned, pool->strings[i]);
-        }
+    *res_ids = malloc((*res_count ? *res_count : 1) * sizeof(uint32_t));
+    for (int i = 0; i < *res_count; i++) {
+        (*res_ids)[i] = partitioned.ids[i];
     }
-    
-    // Build the output array
-    *res_count = num_res_ids;
-    *res_ids = malloc(num_res_ids * sizeof(uint32_t));
-    for (int i = 0; i < num_res_ids; i++) {
-        (*res_ids)[i] = get_res_id(partitioned.strings[i]);
-    }
-    
-    // Replace old pool with partitioned one
     free_builder(pool);
     *pool = partitioned;
 }
@@ -184,42 +191,6 @@ static void write_string_utf16(byte_buf *b, const char *str) {
     free(u);
 }
 
-// Encode a dimension string like "8.0dp" into TYPE_DIMENSION data
-static int parse_dimension(const char *val, uint32_t *out_data) {
-    char *end = NULL;
-    float num = strtof(val, &end);
-    if (!end || end == val) return -1;
-    const char *us = end;
-    // Skip whitespace
-    while (*us == ' ' || *us == '\t') us++;
-    int unit = -1;
-    if (strcmp(us, "dp") == 0 || strcmp(us, "dip") == 0) unit = 1;
-    else if (strcmp(us, "sp") == 0) unit = 2;
-    else if (strcmp(us, "px") == 0) unit = 0;
-    else if (strcmp(us, "pt") == 0) unit = 3;
-    else if (strcmp(us, "in") == 0) unit = 4;
-    else if (strcmp(us, "mm") == 0) unit = 5;
-    if (unit < 0) return -1;
-    // Find the smallest radix where (num * 2^(radix*2)) is an integer
-    int radix = 0;
-    uint32_t mantissa = 0;
-    for (; radix < 4; radix++) {
-        float scaled = num * (float)(1 << (radix * 2));
-        if (scaled == (float)(int)scaled) {
-            mantissa = (uint32_t)(int)scaled;
-            break;
-        }
-    }
-    if (radix >= 4) return -1;
-    *out_data = (mantissa << 8) | (radix << 4) | unit;
-    return 0;
-}
-
-// Global ARSC context for reverse reference lookups (set via axml_assemble_set_arsc)
-static arsc_ctx *g_enc_arsc = NULL;
-
-void axml_assemble_set_arsc(arsc_ctx *arsc) { g_enc_arsc = arsc; }
-
 // Try to resolve "@type/name" format references using ARSC
 static int enc_resolve_ref(const char *val, uint32_t *out_data) {
     if (!g_enc_arsc || val[0] != '@') return -1;
@@ -236,8 +207,30 @@ static int enc_resolve_ref(const char *val, uint32_t *out_data) {
     return 0;
 }
 
+// Parses "#rgb", "#argb", "#rrggbb" or "#aarrggbb" into a color typed value
+static int parse_color(const char *val, uint8_t *out_type, uint32_t *out_data) {
+    if (val[0] != '#') return 0;
+    size_t n = strlen(val + 1);
+    char *end = NULL;
+    uint32_t v = (uint32_t)strtoul(val + 1, &end, 16);
+    if (*end != '\0' || (n != 3 && n != 4 && n != 6 && n != 8)) return 0;
+    if (n <= 4) { /* expand each nibble: #rgb -> ffrrggbb */
+        uint32_t x = 0;
+        for (int i = (int)n - 1; i >= 0; i--) {
+            uint32_t nib = (v >> (i * 4)) & 0xF;
+            x = (x << 8) | (nib << 4) | nib;
+        }
+        v = n == 3 ? 0xFF000000u | x : x;
+    } else if (n == 6) {
+        v |= 0xFF000000u;
+    }
+    *out_type = n == 8 ? 0x1c : n == 6 ? 0x1d : n == 4 ? 0x1e : 0x1f;
+    *out_data = v;
+    return 1;
+}
+
 // Parses type of attribute (0x03 string, 0x11 int, 0x12 bool, 0x01 ref)
-static void parse_attr_value(str_builder *pool, const char *val, const char *aname, uint8_t *out_type, uint32_t *out_data, int *out_str_idx) {
+static void parse_attr_value(str_builder *pool, const char *val, const char *aname, uint32_t attr_id, uint8_t *out_type, uint32_t *out_data, int *out_str_idx) {
     *out_str_idx = -1;
     if (!val || val[0] == '\0') {
         *out_type = 0x03;
@@ -245,6 +238,32 @@ static void parse_attr_value(str_builder *pool, const char *val, const char *ana
         *out_data = *out_str_idx;
         return;
     }
+    // Enum/flag names the decoder printed for a framework or app attribute
+    uint32_t ev;
+    int is_flag = 0;
+    if (axml_fw_enum_value(attr_id, val, &ev, &is_flag)) {
+        *out_type = is_flag ? 0x11 : 0x10;
+        *out_data = ev;
+        return;
+    }
+    int32_t app_ev;
+    if (g_enc_arsc && (attr_id >> 24) == 0x7f && arsc_attr_enum_value(g_enc_arsc, attr_id, val, &app_ev)) {
+        *out_type = 0x10;
+        *out_data = (uint32_t)app_ev;
+        return;
+    }
+    // A string-typed framework attr keeps its text as-is: versionName="1.0"
+    // must not become a float, nor authorities="123" an int.
+    int fmt = axml_fw_attr_fmt(attr_id);
+    if ((fmt & AXML_FMT_STRING) && val[0] != '@' && val[0] != '?' &&
+        !(fmt & (AXML_FMT_INTEGER | AXML_FMT_BOOLEAN | AXML_FMT_COLOR | AXML_FMT_FLOAT |
+                 AXML_FMT_DIMENSION | AXML_FMT_FRACTION))) {
+        *out_str_idx = add_string(pool, val);
+        *out_type = 0x03;
+        *out_data = *out_str_idx;
+        return;
+    }
+    if (parse_color(val, out_type, out_data)) return;
     
     if (strcmp(val, "match_parent") == 0 || strcmp(val, "fill_parent") == 0) {
         *out_type = 0x10;
@@ -280,15 +299,14 @@ static void parse_attr_value(str_builder *pool, const char *val, const char *ana
         *out_data = 0;
         return;
     }
-    // Check dimension (e.g., "8.0dp", "16sp", "1px")
-    uint32_t dim_data;
-    if (parse_dimension(val, &dim_data) == 0) {
-        *out_type = 0x05;
-        *out_data = dim_data;
+    // Dimension ("8.0dp", "16sp") or fraction ("50%", "100%p")
+    uint32_t cx_data;
+    int is_fraction;
+    if (axml_parse_complex(val, &cx_data, &is_fraction)) {
+        *out_type = is_fraction ? 0x06 : 0x05;
+        *out_data = cx_data;
         return;
     }
-    // Check fraction (e.g., "100%", "50%p")
-    // Not implemented yet - fall through
     if (val[0] == '@') {
         // Try resolved reference format "@type/name" first (from ARSC-aware decode)
         uint32_t ref_data;
@@ -301,6 +319,17 @@ static void parse_attr_value(str_builder *pool, const char *val, const char *ana
         if (strncmp(val, "@ref/0x", 7) == 0) {
             *out_type = 0x01;
             *out_data = strtoul(val + 7, NULL, 16);
+            return;
+        }
+    }
+    if (val[0] == '?') { /* theme attribute reference: same forms with '?' */
+        uint32_t ref_data;
+        char tmp[512];
+        snprintf(tmp, sizeof(tmp), "@%s", val + 1);
+        if (enc_resolve_ref(tmp, &ref_data) == 0 ||
+            (strncmp(val, "?ref/0x", 7) == 0 && (ref_data = strtoul(val + 7, NULL, 16), 1))) {
+            *out_type = 0x02;
+            *out_data = ref_data;
             return;
         }
     }
@@ -390,6 +419,7 @@ static void encode_node(xml_doc *doc, xml_node *node, str_builder *pool, byte_bu
             int str_idx;
             uint8_t type;
             uint32_t data;
+            uint32_t res_id;
         } enc_attr;
         
         enc_attr *e_attrs = NULL;
@@ -403,24 +433,13 @@ static void encode_node(xml_doc *doc, xml_node *node, str_builder *pool, byte_bu
                 continue;
             }
             
-            const char *resolved_ns = NULL;
-            if (attr->ns) {
-                // Find matching namespace URI in doc->namespaces
-                xml_attr *ns_attr = doc->root->attrs;
-                while (ns_attr) {
-                    if (ns_attr->ns && strcmp(ns_attr->ns, "xmlns") == 0 && ns_attr->name && strcmp(ns_attr->name, attr->ns) == 0) {
-                        resolved_ns = ns_attr->value;
-                        break;
-                    }
-                    ns_attr = ns_attr->next;
-                }
-                if (!resolved_ns) resolved_ns = attr->ns; // fallback
-            }
-            
+            const char *resolved_ns = resolve_ns(doc, attr->ns);
+            uint32_t rid = attr_res_id(doc, attr);
             e_attrs[a_idx].ns_idx = resolved_ns ? add_string(pool, resolved_ns) : 0xFFFFFFFF;
-            e_attrs[a_idx].name_idx = attr->name ? add_string(pool, attr->name) : 0xFFFFFFFF;
+            e_attrs[a_idx].name_idx = attr->name ? add_string_id(pool, attr->name, rid) : 0xFFFFFFFF;
+            e_attrs[a_idx].res_id = rid;
             
-            parse_attr_value(pool, attr->value, attr->name, &e_attrs[a_idx].type, &e_attrs[a_idx].data, &e_attrs[a_idx].str_idx);
+            parse_attr_value(pool, attr->value, attr->name, rid, &e_attrs[a_idx].type, &e_attrs[a_idx].data, &e_attrs[a_idx].str_idx);
             a_idx++;
             attr = attr->next;
         }
@@ -428,8 +447,8 @@ static void encode_node(xml_doc *doc, xml_node *node, str_builder *pool, byte_bu
         // Sort attributes by Resource ID, then by name_idx
         for (int i = 0; i < attr_count - 1; i++) {
             for (int j = i + 1; j < attr_count; j++) {
-                uint32_t id_i = e_attrs[i].name_idx != 0xFFFFFFFF ? get_res_id(pool->strings[e_attrs[i].name_idx]) : 0;
-                uint32_t id_j = e_attrs[j].name_idx != 0xFFFFFFFF ? get_res_id(pool->strings[e_attrs[j].name_idx]) : 0;
+                uint32_t id_i = e_attrs[i].res_id;
+                uint32_t id_j = e_attrs[j].res_id;
                 
                 int swap = 0;
                 if (id_i == 0 && id_j != 0) {
@@ -487,7 +506,7 @@ static void encode_node(xml_doc *doc, xml_node *node, str_builder *pool, byte_bu
 uint8_t* axml_assemble_doc(xml_doc *doc, size_t *out_size) {
     str_builder pool = {0};
     add_string(&pool, "http://schemas.android.com/apk/res/android");
-    collect_strings(doc->root, &pool);
+    collect_strings(doc, doc->root, &pool);
     
     uint32_t *res_ids = NULL;
     int res_count = 0;

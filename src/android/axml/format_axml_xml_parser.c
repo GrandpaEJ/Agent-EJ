@@ -8,8 +8,12 @@ static void skip_ws(const char **p) {
     while (**p && isspace((unsigned char)**p)) (*p)++;
 }
 
+/* XML NameChar: '.' and non-ASCII are legal, and layouts depend on both —
+ * without '.', <androidx.constraintlayout.widget.ConstraintLayout> was cut
+ * to <androidx> and inflation failed with ClassNotFoundException. */
 static int is_name_char(char c) {
-    return isalnum((unsigned char)c) || c == '_' || c == '-' || c == ':';
+    unsigned char u = (unsigned char)c;
+    return isalnum(u) || c == '_' || c == '-' || c == ':' || c == '.' || u >= 0x80;
 }
 
 static char* parse_name(const char **p) {
@@ -50,9 +54,39 @@ static char* parse_string(const char **p) {
     
     size_t len = *p - start;
     char *val = malloc(len + 1);
-    memcpy(val, start, len);
-    val[len] = '\0';
-    
+    /* Decode entities: the decoder escapes & < > " ' on output, so without
+     * this every &amp;/&apos; came back literally in the rebuilt XML. */
+    size_t j = 0;
+    for (size_t i = 0; i < len; ) {
+        static const struct { const char *e; char c; } ents[] = {
+            {"&amp;", '&'}, {"&lt;", '<'}, {"&gt;", '>'}, {"&quot;", '"'}, {"&apos;", '\''},
+        };
+        int done = 0;
+        if (start[i] == '&') {
+            for (size_t k = 0; k < sizeof(ents) / sizeof(ents[0]); k++) {
+                size_t el = strlen(ents[k].e);
+                if (i + el <= len && strncmp(start + i, ents[k].e, el) == 0) {
+                    val[j++] = ents[k].c; i += el; done = 1; break;
+                }
+            }
+            if (!done && i + 2 < len && start[i + 1] == '#') {
+                char *end = NULL;
+                int hex = start[i + 2] == 'x' || start[i + 2] == 'X';
+                unsigned long cp = strtoul(start + i + 2 + hex, &end, hex ? 16 : 10);
+                if (end && (size_t)(end - start) < len && *end == ';' && cp && cp < 0x110000) {
+                    /* UTF-8 is never longer than the "&#N;" text it replaces */
+                    if (cp < 0x80) val[j++] = (char)cp;
+                    else if (cp < 0x800) { val[j++] = (char)(0xC0 | (cp >> 6)); val[j++] = (char)(0x80 | (cp & 0x3F)); }
+                    else if (cp < 0x10000) { val[j++] = (char)(0xE0 | (cp >> 12)); val[j++] = (char)(0x80 | ((cp >> 6) & 0x3F)); val[j++] = (char)(0x80 | (cp & 0x3F)); }
+                    else { val[j++] = (char)(0xF0 | (cp >> 18)); val[j++] = (char)(0x80 | ((cp >> 12) & 0x3F)); val[j++] = (char)(0x80 | ((cp >> 6) & 0x3F)); val[j++] = (char)(0x80 | (cp & 0x3F)); }
+                    i = (size_t)(end - start) + 1; done = 1;
+                }
+            }
+        }
+        if (!done) val[j++] = start[i++];
+    }
+    val[j] = '\0';
+
     if (**p == quote) (*p)++;
     return val;
 }

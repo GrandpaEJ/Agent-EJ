@@ -140,7 +140,18 @@ static int util_collect_files(const char *base, char ***paths, int *count, const
                 continue;
             }
         }
-        
+        /* Decode-only artifacts: the res/values* text XML is compiled into
+         * resources.arsc (shipping it adds ~45 stray files per APK), and
+         * original/ holds the decoder's reference copies. */
+        {
+            char res_dir[4096];
+            snprintf(res_dir, sizeof(res_dir), "%s/res", root_dir);
+            struct stat st;
+            int is_dir = stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+            if (is_dir && strcmp(base, res_dir) == 0 && strncmp(ent->d_name, "values", 6) == 0) continue;
+            if (is_dir && strcmp(base, root_dir) == 0 && strcmp(ent->d_name, "original") == 0) continue;
+        }
+
         struct stat st;
         if (stat(p, &st) == 0 && S_ISDIR(st.st_mode)) {
             util_collect_files(p, paths, count, root_dir);

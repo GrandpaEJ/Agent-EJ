@@ -206,6 +206,21 @@ const char *arsc_attr_enum(arsc_ctx *ctx, uint32_t attr_id, int32_t value) {
     return NULL;
 }
 
+int arsc_attr_enum_value(arsc_ctx *ctx, uint32_t attr_id, const char *name, int32_t *out) {
+    if (!ctx || !name) return 0;
+    for (int p = 0; p < ctx->package_count; p++) {
+        for (int i = 0; i < ctx->packages[p].attr_entry_count; i++) {
+            if (ctx->packages[p].attr_entries[i].attr_id == attr_id &&
+                ctx->packages[p].attr_entries[i].name &&
+                strcmp(ctx->packages[p].attr_entries[i].name, name) == 0) {
+                *out = ctx->packages[p].attr_entries[i].value;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 const char *arsc_get_type_name(arsc_ctx *ctx, uint32_t pkg_id, uint8_t type_id) {
     if (!ctx) return NULL;
     for (int p = 0; p < ctx->package_count; p++) {
