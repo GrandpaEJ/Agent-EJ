@@ -23,6 +23,8 @@ char* execute_read_axml(cJSON* args);
 char* execute_axml_assemble(cJSON* args);
 char* execute_decode_apk(cJSON* args);
 char* execute_build_apk(cJSON* args);
+char* execute_merge_apk(cJSON* args);
+char* execute_deobfuscate(cJSON* args);
 char* execute_analyze_apk(cJSON* args);
 char* execute_disasm_dex(cJSON* args);
 char* execute_smali_assemble(cJSON* args);

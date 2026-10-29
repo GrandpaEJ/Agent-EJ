@@ -62,6 +62,32 @@ char *dex_dump(dex_ctx *ctx);
 char *dex_to_smali_class(dex_ctx *ctx, uint32_t class_idx);
 void dex_free(dex_ctx *ctx);
 
+/* Deobfuscation — repair pass. Each takes a (possibly tampered) format image
+ * and returns a malloc'd, cleaned image of *out_size that standard tools can
+ * parse, or NULL when the image is unrepairable. `changes` (optional, may be
+ * NULL) receives a short "; "-separated summary of what was fixed. */
+uint8_t *dex_repair(const uint8_t *in, size_t size, size_t *out_size,
+                    char *changes, size_t changes_cap);
+uint8_t *axml_repair(const uint8_t *in, size_t size, size_t *out_size,
+                     char *changes, size_t changes_cap);
+uint8_t *arsc_repair(const uint8_t *in, size_t size, size_t *out_size,
+                     char *changes, size_t changes_cap);
+
+/* Deobfuscation — name-restoring passes over a decoded smali tree (for
+ * analysis/readability; renamed output is not meant to be rebuilt and run). */
+typedef struct deobf_table deobf_table;
+deobf_table *deobf_table_new(void);
+void deobf_table_free(deobf_table *t);
+void deobf_add_class(deobf_table *t, const char *obf_body, const char *new_body);
+void deobf_add_member(deobf_table *t, const char *obf_class_body,
+                      const char *obf_name, const char *new_name);
+int deobf_rewrite_tree(const char *root, deobf_table *t, char *report, size_t cap);
+/* Map mode: apply an R8/ProGuard mapping.txt. Returns files rewritten, or -1. */
+int deobf_map_apply(const char *smali_root, const char *mapping_path,
+                    char *report, size_t cap);
+/* Heuristic mode: stable readable names for obfuscated classes/members. */
+int deobf_heuristic_apply(const char *smali_root, char *report, size_t cap);
+
 // Smali assembler
 int smali_assemble(const char *src_dir, const char *out_dex);
 /* Like smali_assemble, but reports how many DEX files were written (classes.dex, classes2.dex, ...). */
@@ -77,6 +103,10 @@ char* smali_flow_generate(smali_method_def_t *method, const char *method_name);
 #define APK_SIGN_ERR_CERT_MISMATCH (-2)
 int apk_sign_v1(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len);
 int apk_sign_v2_v3(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2, int do_v3, const uint8_t *custom_cert, uint32_t custom_cert_len);
+/* Consumes the written ZIP payload `in_zip` (removing it) and produces a
+ * signed, aligned APK at `out_apk`: v1 -> zipalign -> v2/v3, or align-only
+ * when key_path is NULL. Returns 0, or APK_SIGN_ERR_CERT_MISMATCH / -1. */
+int apk_sign_pipeline(const char *in_zip, const char *out_apk, const char *key_path, const char *cert_path);
 char *apk_analyze(const char *path);
 void apk_free(char *result);
 
@@ -96,5 +126,23 @@ int arsc_decode_apk(const char *out_dir);
  * the rebuilt APK.  Returns 0 when the table was replaced or there was nothing
  * to recompile, -1 when the original table was kept. */
 int apk_recompile_resources(const char *src_dir);
+/* Native anti-split: merges a split APK set (a directory of APKs or an
+ * .xapk/.apks/.apkm bundle) into one standalone, unsigned, aligned APK.
+ * The caller signs the result. Returns 0 on success. */
+int apk_merge_assemble(const char *input, const char *out_apk);
+/* Native anti-split, end to end: assembles the merged APK and signs it
+ * (default key when key_path is NULL is the caller's concern). Returns 0,
+ * or APK_SIGN_ERR_CERT_MISMATCH / -1. */
+int apk_merge(const char *input, const char *out_apk, const char *key_path, const char *cert_path);
+/* Clears the split requirements (requiredSplitTypes / isSplitRequired) in a
+ * base binary AndroidManifest so the merged APK installs on its own. Returns a
+ * malloc'd copy of `size` bytes, or NULL. */
+uint8_t *apk_fix_split_manifest(const uint8_t *axml, size_t size, size_t *out_size);
+/* Deobfuscation (repair pass), APK-wide: copies in_apk to out_apk, replacing
+ * each tampered DEX / binary XML / resource table with its repaired form. The
+ * output is unsigned and aligned. `report` (optional) receives a newline-
+ * separated per-entry summary. Returns the count of entries changed, or -1. */
+int apk_deobf_repair(const char *in_apk, const char *out_apk,
+                     char *report, size_t report_cap);
 
 #endif

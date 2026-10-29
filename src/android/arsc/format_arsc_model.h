@@ -118,5 +118,8 @@ arsc_model_entry *arsc_model_find_entry(arsc_model *m, uint32_t res_id);
 int arsc_model_set_string(arsc_model *m, uint32_t res_id, const char *text);
 /* Points a resource at a new integer value. */
 int arsc_model_set_int(arsc_model *m, uint32_t res_id, int32_t value, uint8_t data_type);
+/* Folds every configuration of `split` into `base` (native anti-split).
+ * Returns the number of configurations added, or -1 on failure. */
+int arsc_model_merge(arsc_model *base, const arsc_model *split);
 
 #endif
