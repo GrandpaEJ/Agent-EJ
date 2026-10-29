@@ -97,6 +97,8 @@ char *smali_tsm(const char *d);
 int dex_format_value(const uint8_t **pp, const uint8_t *end, char *buf, size_t sz, dex_ctx *ctx);
 int dex_skip_value(const uint8_t **pp, const uint8_t *end);
 void dex_static_value(dex_ctx *ctx, uint32_t values_off, int idx, char *buf, size_t sz);
+/* k: 1=string literal (escaped), 2=type, 3=field ref, 4=method ref,
+ * 5=member name (raw — identifiers are never escaped, like baksmali) */
 const char *smali_res(dex_ctx *ctx, int k, uint32_t i);
 const char *smali_escape_str(const char *raw);
 void smali_mproto(dex_ctx *ctx, uint32_t mi, char *b, size_t z);

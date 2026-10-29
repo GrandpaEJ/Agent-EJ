@@ -22,7 +22,7 @@ static int write_encoded_annotation(smali_sb *s, dex_ctx *ctx,
         uint32_t name_idx; smali_uleb(p, &name_idx, &p);
         if (p >= end) break;
         int elem_indent = (int)strlen(prefix) + 4;
-        smali_sf(s, "%s    %s = ", prefix, smali_res(ctx, 1, name_idx));
+        smali_sf(s, "%s    %s = ", prefix, smali_res(ctx, 5, name_idx));
         write_encoded_value(s, ctx, &p, end, elem_indent);
         smali_sa(s, "\n");
     }
@@ -60,7 +60,7 @@ static void write_encoded_value(smali_sb *s, dex_ctx *ctx,
         for (uint32_t si = 0; si < n && p < end; si++) {
             uint32_t name;
             p += dex_read_uleb128(p, &name);
-            smali_sf(s, "%*s%s = ", base_indent + 4, "", smali_res(ctx, 1, name));
+            smali_sf(s, "%*s%s = ", base_indent + 4, "", smali_res(ctx, 5, name));
             write_encoded_value(s, ctx, &p, end, base_indent + 4);
             smali_sa(s, "\n");
         }

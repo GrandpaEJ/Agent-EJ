@@ -91,6 +91,10 @@ const char *smali_res(dex_ctx *ctx, int k, uint32_t i) {
     switch (k) {
     case 1: return i < ctx->string_count ? smali_escape_str(ctx->sp.strings[i]) : "??";
     case 2: return i < ctx->type_count ? ctx->sp.strings[ctx->type_ids[i]] : "??";
+    /* Member names are identifiers, not string literals: escaping them
+     * (e.g. obfuscated U+206D names → "⁭") makes the assembler store
+     * the backslash text verbatim, which ART rejects as an invalid name. */
+    case 5: return i < ctx->string_count ? ctx->sp.strings[i] : "??";
     case 3:
         if (i < ctx->field_count) {
             dex_field *f = &ctx->fields[i];
@@ -99,7 +103,7 @@ const char *smali_res(dex_ctx *ctx, int k, uint32_t i) {
             static char b[4096];
             snprintf(b,sizeof(b), "%s->%s:%s",
                 c?:smali_res(ctx,2,f->class_idx),
-                smali_res(ctx,1,f->name_idx),
+                smali_res(ctx,5,f->name_idx),
                 t?:smali_res(ctx,2,f->type_idx));
             free(c); free(t); return b;
         } return "??";
@@ -122,7 +126,7 @@ const char *smali_res(dex_ctx *ctx, int k, uint32_t i) {
             static char b[65536 + 4096];
             snprintf(b,sizeof(b), "%s->%s(%s)%s",
                 c?:smali_res(ctx,2,m->class_idx),
-                smali_res(ctx,1,m->name_idx), par,
+                smali_res(ctx,5,m->name_idx), par,
                 rt?:smali_res(ctx,2,p->return_type_idx));
             free(c); free(rt); return b;
         } return "??";
