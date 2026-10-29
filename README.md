@@ -135,17 +135,27 @@ Repackaged APKs are signed with a different certificate, so apps that verify the
 | `scan` | Report every method touching `PackageManager`/`PackageInfo`/`Signature`/`SigningInfo` and every hardcoded certificate digest |
 | `stub` | Replace boolean/int/String/signature-check method bodies with a passing implementation (annotations preserved) |
 | `pkg` | Inject `com.agent.ej.SigKiller`, which rewrites `PackageInfo.signatures` and wraps every `Signature[]`/`SigningInfo` read so the app sees the **original** certificate at runtime |
+| `call` | Replace `PackageManager.getPackageInfo` / `getPackageArchiveInfo` / `getInstalledPackages` invocations with a static wrapper that returns an already-fixed object (works even when the caller inspects the object directly) |
+| `sigobj` | Override `Signature.toCharsString()` / `hashCode()` / `equals()` results with the original certificate's values, and retarget `toByteArray()` to the original DER |
+| `checkapi` | Force `PackageManager.checkSignatures(...)` to return `0` (`SIGNATURE_MATCH`) |
+| `zipcert` | Copy the original `META-INF` signature block to `assets/sigkill/` and retarget code that opens `META-INF/CERT.RSA` in its own APK to that copy |
 | `const` | Rewrite hardcoded certificate digests (DER hex / `toCharsString`, MD5, SHA-1, SHA-256, base64, Java `hashCode`) from the original to the certificate the APK is actually signed with |
 | `native` | Patch the same digest strings inside `lib/**/*.so` and `assets/**` in place (same encoding ⇒ same length) |
 
-`pkg` is the runtime strategy (app keeps seeing the original signature); `const`/`native` are the static strategy (app is taught the new signature). Do not combine those two families for one app — `sigkill` automatically disables `pkg` when `const` is requested.
+`pkg`/`call`/`sigobj`/`checkapi`/`zipcert` are the runtime strategies (the app keeps seeing the original signature); `const`/`native` are the static strategy (the app is taught the new signature). Do not combine those two families for one app — `sigkill` automatically disables the runtime strategies when `const` is requested.
 
 ```bash
-# One-shot: decode → patch → rebuild → sign
+# One-shot: decode → patch → rebuild → sign (stub + pkg + call + sigobj + checkapi + zipcert)
 ./agent-ej tool sigkill path=app.apk out=app_killed.apk mode=all
 
 # Runtime hijack only, keep the original cert visible to the app
 ./agent-ej tool sigkill path=app.apk out=app_killed.apk mode=pkg
+
+# Only the method-call and Signature-object hooks
+./agent-ej tool sigkill path=app.apk out=app_killed.apk mode=call,sigobj
+
+# Force checkSignatures() callers and self-archive META-INF readers to pass
+./agent-ej tool sigkill path=app.apk out=app_killed.apk mode=checkapi,zipcert
 
 # Static rewrite to a new signing certificate, incl. native checks
 ./agent-ej tool sigkill path=app.apk out=app_killed.apk mode=const,native cert=newcert.pem
