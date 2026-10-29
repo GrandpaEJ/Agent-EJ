@@ -55,6 +55,7 @@ static void scan_line(const char *in, size_t len, deobf_table *t, sb *out, int *
             if (k < len && in[k] == ';') {
                 size_t blen = k - (i + 1);
                 char *body = malloc(blen + 1);
+                if (!body) { sb_putc(out, 'L'); i++; continue; }  /* OOM: 'L' literal, reparse */
                 memcpy(body, in + i + 1, blen); body[blen] = 0;
                 deobf_class *cl = deobf_find_class(t, body);
                 sb_putc(out, 'L');
@@ -68,11 +69,15 @@ static void scan_line(const char *in, size_t len, deobf_table *t, sb *out, int *
                     while (m < len && in[m] != '(' && in[m] != ':' && in[m] != ' ' && in[m] != '\t') m++;
                     size_t mlen = m - i;
                     char *name = malloc(mlen + 1);
-                    memcpy(name, in + i, mlen); name[mlen] = 0;
-                    const char *rep = deobf_find_member(t, body, name);
-                    if (rep && rep[0]) { sb_puts(out, rep); *changed = 1; }
-                    else sb_put(out, name, mlen);
-                    free(name);
+                    if (name) {
+                        memcpy(name, in + i, mlen); name[mlen] = 0;
+                        const char *rep = deobf_find_member(t, body, name);
+                        if (rep && rep[0]) { sb_puts(out, rep); *changed = 1; }
+                        else sb_put(out, name, mlen);
+                        free(name);
+                    } else {
+                        sb_put(out, in + i, mlen);      /* OOM: keep original name */
+                    }
                     i = m;
                 }
                 free(body);
