@@ -28,7 +28,11 @@ uint32_t write_debug_info(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def
     if (m->param_name_count == 0 && !has_lines && !m->prologue_set && !m->epilogue_set && !has_locals)
         return 0;
 
-    align_4(b);
+    /* debug_info_item has no alignment requirement in the DEX spec, and
+     * items are now packed back-to-back in their own section (see the
+     * caller in smali_writer.c) — padding here would open a gap a
+     * sequential, self-describing-length walk (what DEX verifiers use)
+     * does not expect, desyncing it from the next item's real start. */
     uint32_t offset = b->len;
 
     /* 0 is a real line number (D8 emits it for synthetic lambdas/bridges),

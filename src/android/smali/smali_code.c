@@ -1,7 +1,6 @@
 #include "smali_code.h"
 #include "smali_encoder.h"
 #include "smali_pool.h"
-#include "smali_debug.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -166,7 +165,12 @@ int write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_t *m,
     buf_write_u16(b, m->ins_count);
     buf_write_u16(b, outs_size);
     buf_write_u16(b, range_count);
-    uint32_t dbg_off_slot = b->len;
+    /* debug_info_off: left 0 here. Debug info is written in a separate,
+     * contiguous pass after every class's code items so the file's
+     * TYPE_CODE_ITEM map region stays an unbroken run of code_items (DEX
+     * verifiers derive item N+1's offset from item N's own size, so any
+     * bytes spliced between code items are misread as the next header).
+     * The caller patches this slot once the debug_info_item is written. */
     buf_write_u32(b, 0);
     buf_write_u32(b, code_words);
     buf_write(b, code_buf, code_words * 2);
@@ -240,11 +244,6 @@ int write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_t *m,
         buf_write(b, h_buf.buf, h_buf.len);
         buf_free(&h_buf);
         free(handler_list_offsets);
-    }
-
-    uint32_t debug_info_off = write_debug_info(ctx, b, m);
-    if (debug_info_off != 0) {
-        *(uint32_t *)(b->buf + dbg_off_slot) = debug_info_off;
     }
 
     free(code_buf);

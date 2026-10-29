@@ -1,5 +1,6 @@
 #include "smali_writer.h"
 #include "smali_code.h"
+#include "smali_debug.h"
 #include "smali_value.h"
 #include "smali_buf.h"
 #include "smali_pool.h"
@@ -269,6 +270,33 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
     align_4(&b);
     if (code_section_end > 0 && b.len > code_section_end) {
         memset(b.buf + code_section_end, 0, b.len - code_section_end);
+    }
+    align_4(&b);
+
+    /* Debug info must live in its own contiguous run, after every code_item.
+     * Writing it per-method right after that method's code_item (as a
+     * naive pass would) splices it between code_items, so a DEX verifier
+     * that derives item N+1's offset purely from item N's own structural
+     * size walks straight into the debug bytes and misreads them as the
+     * next method's code_item header. See AGENTS.md Phase 3/4. */
+    for (uint32_t i = 0; i < class_count; i++) {
+        smali_class_def_t *c = &ctx->classes[i];
+        for (uint32_t j = 0; j < c->direct_method_count; j++) {
+            uint32_t code_off = direct_code_offsets[i] ? direct_code_offsets[i][j] : 0;
+            if (!code_off) continue;
+            uint32_t dbg_off = write_debug_info(ctx, &b, &c->direct_methods[j]);
+            if (dbg_off != 0) {
+                *(uint32_t *)(b.buf + code_off + 8) = dbg_off;
+            }
+        }
+        for (uint32_t j = 0; j < c->virtual_method_count; j++) {
+            uint32_t code_off = virtual_code_offsets[i] ? virtual_code_offsets[i][j] : 0;
+            if (!code_off) continue;
+            uint32_t dbg_off = write_debug_info(ctx, &b, &c->virtual_methods[j]);
+            if (dbg_off != 0) {
+                *(uint32_t *)(b.buf + code_off + 8) = dbg_off;
+            }
+        }
     }
     align_4(&b);
 
