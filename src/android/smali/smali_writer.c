@@ -10,6 +10,20 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+static int cmp_idx_pair(const void *a, const void *b) {
+    uint32_t x, y;
+    memcpy(&x, a, 4);
+    memcpy(&y, b, 4);
+    return x < y ? -1 : x > y;
+}
+
+/* annotations_directory_item's field/method/parameter lists must be sorted by
+ * index (ART: "Out-of-order method_idx for annotation"); they are written
+ * static-then-instance / direct-then-virtual, so sort each list in place. */
+static void sort_idx_pairs(smali_buf_t *b, uint32_t start) {
+    qsort(b->buf + start, (b->len - start) / 8, 8, cmp_idx_pair);
+}
+
 static void write_map_item(smali_buf_t *b, uint16_t type, uint32_t size, uint32_t offset) {
     buf_write_u16(b, type);
     buf_write_u16(b, 0);
@@ -913,6 +927,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
         buf_write_u32(&b, meth_annot_count);
         buf_write_u32(&b, param_annot_count);
         
+        uint32_t list_start = b.len;
         if (field_annot_count > 0) {
             for (uint32_t j = 0; j < c->static_field_count; j++) {
                 if (field_s_set_offs[i][j]) {
@@ -934,6 +949,9 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
             }
         }
         
+        sort_idx_pairs(&b, list_start);
+
+        list_start = b.len;
         if (meth_annot_count > 0) {
             for (uint32_t j = 0; j < c->direct_method_count; j++) {
                 if (meth_d_set_offs[i][j]) {
@@ -955,6 +973,9 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
             }
         }
         
+        sort_idx_pairs(&b, list_start);
+
+        list_start = b.len;
         if (param_annot_count > 0) {
             for (uint32_t j = 0; j < c->direct_method_count; j++) {
                 if (param_d_ref_list_offs[i][j]) {
@@ -975,6 +996,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
                 }
             }
         }
+        sort_idx_pairs(&b, list_start);
     }
     
     // Cleanup memory

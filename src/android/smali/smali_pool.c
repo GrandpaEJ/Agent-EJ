@@ -1,5 +1,6 @@
 #include "smali_pool.h"
 #include <string.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -57,8 +58,63 @@ uint32_t smali_pool_find(smali_pool_strings_t *p, const char *str) {
     return 0xFFFFFFFF;
 }
 
+/* Next UTF-16 code unit of a UTF-8 string; *pend holds the low surrogate
+ * still owed for a 4-byte sequence. Returns -1 at the end of the string:
+ * 0 is a real unit here, since U+0000 is stored as MUTF-8 C0 80. */
+static int32_t next_utf16_unit(const unsigned char **ps, uint32_t *pend) {
+    if (*pend) { int32_t u = (int32_t)*pend; *pend = 0; return u; }
+    const unsigned char *s = *ps;
+    if (!*s) return -1;
+    uint32_t cp; int k;
+    if (*s < 0x80) { cp = *s; k = 0; }
+    else if ((*s & 0xE0) == 0xC0) { cp = *s & 0x1F; k = 1; }
+    else if ((*s & 0xF0) == 0xE0) { cp = *s & 0x0F; k = 2; }
+    else if ((*s & 0xF8) == 0xF0) { cp = *s & 0x07; k = 3; }
+    else { cp = *s; k = 0; }
+    s++;
+    for (; k > 0 && (*s & 0xC0) == 0x80; k--) cp = (cp << 6) | (*s++ & 0x3F);
+    *ps = s;
+    if (cp >= 0x10000) {
+        cp -= 0x10000;
+        *pend = 0xDC00 | (cp & 0x3FF);
+        return (int32_t)(0xD800 | (cp >> 10));
+    }
+    return (int32_t)cp;
+}
+
+/* DEX requires string_ids sorted by UTF-16 code unit, not by UTF-8 byte: the
+ * two disagree for characters above U+FFFF (UTF-8 F0.. sorts after U+E000-
+ * U+FFFF, UTF-16 surrogates D8xx sort before), which ART rejects as
+ * "Out-of-order string_ids". */
 static int comp_str(const void *a, const void *b) {
-    return strcmp(*(const char **)a, *(const char **)b);
+    const unsigned char *x = *(const unsigned char **)a, *y = *(const unsigned char **)b;
+    uint32_t px = 0, py = 0;
+    for (;;) {
+        int32_t ux = next_utf16_unit(&x, &px), uy = next_utf16_unit(&y, &py);
+        if (ux != uy) return ux < uy ? -1 : 1;
+        if (ux < 0) return 0;
+    }
+}
+
+/* A string is promoted to a type_id only if it is a well-formed descriptor:
+ * ART rejects the whole DEX for one bad type ("Invalid type descriptor"),
+ * and plain strings such as generic-signature fragments ("L:Ljava/lang/
+ * Object;") or regexes ("[p: ") otherwise look type-like. */
+static int is_type_descriptor(const char *s) {
+    int dims = 0;
+    while (*s == '[') { s++; dims++; }
+    if (dims > 255) return 0;
+    if (*s && !s[1] && strchr("ZBSCIJFD", *s)) return 1;
+    if (*s == 'V' && !s[1]) return dims == 0;
+    if (*s != 'L') return 0;
+    const unsigned char *p = (const unsigned char *)s + 1;
+    int seg = 0;
+    for (; *p && *p != ';'; p++) {
+        if (*p == '/') { if (!seg) return 0; seg = 0; continue; }
+        if (*p < 0x80 && !(isalnum(*p) || *p == '$' || *p == '_' || *p == '-')) return 0;
+        seg++;
+    }
+    return *p == ';' && !p[1] && seg > 0;
 }
 
 static void pool_rebuild_hash(smali_pool_strings_t *p) {
@@ -553,7 +609,7 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
     // 2. Build Type Pool - only types actually referenced
     for (uint32_t i = 0; i < ctx->strings.count; i++) {
         const char *s = ctx->strings.strings[i];
-        if ((s[0] == 'L' && s[1] != '\0' && strchr(s, ';') && !strstr(s, "->")) || s[0] == '[') {
+        if (is_type_descriptor(s)) {
             smali_pool_add(&ctx->types, s);
         }
     }
