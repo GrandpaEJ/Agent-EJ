@@ -153,6 +153,10 @@ const char *arsc_lookup_id(arsc_ctx *ctx, uint32_t res_id) {
             static char buf[256];
             const char *tn = ctx->packages[p].types[t].name;
             if (!tn) tn = "unknown";
+            /* Obfuscated tables give many entries the same key (every string
+             * "HEHE_BOI"); a name that resolves to another entry would rebind
+             * the reference, so callers get NULL and print @ref/0x... instead. */
+            if (arsc_reverse_lookup(ctx, tn, key) != res_id) return NULL;
             snprintf(buf, sizeof(buf), "%s/%s", tn, key);
             return buf;
         }
