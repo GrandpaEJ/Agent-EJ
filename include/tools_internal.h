@@ -34,8 +34,10 @@ char* execute_zipalign(cJSON* args);
 char* execute_arsc_encode(cJSON* args);
 char* execute_arsc_info(cJSON* args);
 char* execute_arsc_compile(cJSON* args);
+char* execute_sigkill(cJSON* args);
 
 // Helpers
+int resolve_default_key_path(char *out, size_t cap);
 int find_skill_file(const char* dir_path, const char* name, char* out_path, size_t out_len);
 int is_path_safe(const char* path);
 char* str_tolower(const char* s);

@@ -12,7 +12,7 @@
 
 // Locate the default test key (matching the built-in certificate) so that
 // zero-config signing works from any working directory.
-static int resolve_default_key_path(char *out, size_t cap) {
+int resolve_default_key_path(char *out, size_t cap) {
     static const char *candidates[] = {
         "testkey.pem",       // legacy CWD-relative default
         "keys/testkey.pem",  // repo layout when run from the repo root
