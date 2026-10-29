@@ -128,15 +128,60 @@ static void buf_w16(byte_buf *b, uint16_t v) {
     buf_append(b, buf, 2);
 }
 
+/* Decodes UTF-8 into UTF-16 units (out may be NULL to just count). Casting
+ * each byte to a unit, as this used to, turned every non-ASCII char into
+ * several sign-extended garbage units (U+206D -> FFE2 FF81 FFAD), so an
+ * obfuscated activity class name no longer matched the DEX and the app died
+ * with ClassNotFoundException. */
+static size_t utf8_to_utf16(const char *str, uint16_t *out) {
+    const unsigned char *s = (const unsigned char *)str;
+    size_t n = 0;
+    while (*s) {
+        uint32_t cp; int k;
+        if (*s < 0x80) { cp = *s; k = 0; }
+        else if ((*s & 0xE0) == 0xC0) { cp = *s & 0x1F; k = 1; }
+        else if ((*s & 0xF0) == 0xE0) { cp = *s & 0x0F; k = 2; }
+        else if ((*s & 0xF8) == 0xF0) { cp = *s & 0x07; k = 3; }
+        else { cp = 0xFFFD; k = 0; }
+        s++;
+        for (; k > 0 && (*s & 0xC0) == 0x80; k--) cp = (cp << 6) | (*s++ & 0x3F);
+        if (k > 0) cp = 0xFFFD; /* truncated sequence */
+        if (cp >= 0x10000) {
+            if (out) {
+                out[n] = (uint16_t)(0xD800 | ((cp - 0x10000) >> 10));
+                out[n + 1] = (uint16_t)(0xDC00 | ((cp - 0x10000) & 0x3FF));
+            }
+            n += 2;
+        } else {
+            if (out) out[n] = (uint16_t)cp;
+            n++;
+        }
+    }
+    return n;
+}
+
+/* Bytes write_string_utf16() emits for str: length prefix (1 or 2 units),
+ * the units, and the null terminator. */
+static size_t utf16_entry_size(const char *str) {
+    size_t n = utf8_to_utf16(str, NULL);
+    return (n > 0x7FFF ? 4 : 2) + n * 2 + 2;
+}
+
 // Write UTF-16 String
 static void write_string_utf16(byte_buf *b, const char *str) {
-    // Basic ASCII/UTF-8 to UTF-16 conversion
-    size_t len = strlen(str);
-    buf_w16(b, (uint16_t)len);
-    for (size_t i = 0; i < len; i++) {
-        buf_w16(b, (uint16_t)str[i]);
+    size_t n = utf8_to_utf16(str, NULL);
+    uint16_t *u = malloc((n ? n : 1) * sizeof(uint16_t));
+    if (!u) return;
+    utf8_to_utf16(str, u);
+    if (n > 0x7FFF) { /* long form: high bit set, then low 16 bits */
+        buf_w16(b, (uint16_t)(0x8000 | (n >> 16)));
+        buf_w16(b, (uint16_t)(n & 0xFFFF));
+    } else {
+        buf_w16(b, (uint16_t)n);
     }
+    for (size_t i = 0; i < n; i++) buf_w16(b, u[i]);
     buf_w16(b, 0x0000); // Null terminator
+    free(u);
 }
 
 // Encode a dimension string like "8.0dp" into TYPE_DIMENSION data
@@ -496,7 +541,7 @@ uint8_t* axml_assemble_doc(xml_doc *doc, size_t *out_size) {
     uint32_t str_offset = 0;
     for (int i = 0; i < pool.count; i++) {
         buf_w32(&final, str_offset);
-        str_offset += (strlen(pool.strings[i]) * 2) + 4; // UTF-16: 2 bytes for len, 2 bytes per char, 2 bytes for null
+        str_offset += (uint32_t)utf16_entry_size(pool.strings[i]);
     }
     
     // String Data
