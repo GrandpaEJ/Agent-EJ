@@ -13,7 +13,8 @@ typedef struct xml_attr {
 
 typedef struct xml_node {
     char *ns;      // e.g., "" (can be NULL)
-    char *name;    // e.g., "manifest"
+    char *name;    // e.g., "manifest"; NULL for a text node
+    char *text;    // character data of a text node (name == NULL)
     xml_attr *attrs;
     struct xml_node *children; // First child
     struct xml_node *next;     // Next sibling

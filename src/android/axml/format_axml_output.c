@@ -272,6 +272,7 @@ char *axml_get_xml(axml_ctx *ctx) {
     int depth = 0;
     int ns_stack[64];
     int ns_depth = 0;
+    int ns_shown = 0; // stack entries already declared on an enclosing element
 
     for (int i = 0; i < ctx->event_count; i++) {
         switch (ctx->event_types[i]) {
@@ -280,6 +281,7 @@ char *axml_get_xml(axml_ctx *ctx) {
             break;
         case 1: // end ns
             if (ns_depth > 0) ns_depth--;
+            if (ns_shown > ns_depth) ns_shown = ns_depth;
             break;
         case 2: { // start elem
             indent(&ctx->xml, &len, &cap, depth);
@@ -327,7 +329,7 @@ char *axml_get_xml(axml_ctx *ctx) {
             }
 
             // Emit namespaces after attributes (apktool style)
-            for (int j = 0; j < ns_depth; j++) {
+            for (int j = ns_shown; j < ns_depth; j++) {
                 int ei = ns_stack[j];
                 const char *p = get_str(ctx, ctx->event_ns[ei]);
                 const char *u = get_str(ctx, ctx->event_name[ei]);
@@ -336,6 +338,7 @@ char *axml_get_xml(axml_ctx *ctx) {
                     append_fmt(&ctx->xml, &len, &cap, " xmlns:%s=\"%s\"", p, u);
                 }
             }
+            ns_shown = ns_depth;
             if (ns_depth == 0 && ns && ns[0]) {
                 if (has_attrs) { append(&ctx->xml, &len, &cap, "\n"); indent(&ctx->xml, &len, &cap, depth + 1); }
                 append_fmt(&ctx->xml, &len, &cap, " xmlns=\"%s\"", ns);

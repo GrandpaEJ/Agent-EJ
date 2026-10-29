@@ -76,7 +76,8 @@ static void collect_strings(xml_doc *doc, xml_node *node, str_builder *b) {
     while (node) {
         if (node->ns) add_string(b, node->ns);
         if (node->name) add_string(b, node->name);
-        
+        if (node->text) add_string(b, node->text);
+
         xml_attr *attr = node->attrs;
         while (attr) {
             if (attr->ns) add_string(b, attr->ns);
@@ -366,6 +367,23 @@ static void parse_attr_value(str_builder *pool, const char *val, const char *ana
 // Encodes AST into AXML body chunks
 static void encode_node(xml_doc *doc, xml_node *node, str_builder *pool, byte_buf *b, uint32_t *line_no) {
     while (node) {
+        if (!node->name) {
+            // TEXT (CDATA) chunk: header, line, comment, data, typed string value
+            if (node->text) {
+                uint32_t idx = (uint32_t)add_string(pool, node->text);
+                buf_w16(b, 0x0104);
+                buf_w16(b, 0x0010);
+                buf_w32(b, 28);
+                buf_w32(b, *line_no);
+                buf_w32(b, 0xFFFFFFFF);
+                buf_w32(b, idx);
+                buf_w16(b, 8);
+                buf_w16(b, 0x0300); // res0 = 0, dataType = TYPE_STRING
+                buf_w32(b, idx);
+            }
+            node = node->next;
+            continue;
+        }
         int ns_idx = 0xFFFFFFFF;
         if (node->ns) {
             const char *resolved_ns = NULL;

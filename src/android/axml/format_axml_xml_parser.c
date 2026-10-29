@@ -45,17 +45,10 @@ static void split_ns(char *full, char **ns, char **name) {
     }
 }
 
-static char* parse_string(const char **p) {
-    skip_ws(p);
-    if (**p != '"' && **p != '\'') return NULL;
-    char quote = *(*p)++;
-    const char *start = *p;
-    while (**p && **p != quote) (*p)++;
-    
-    size_t len = *p - start;
+/* Decode entities: the decoder escapes & < > " ' on output, so without
+ * this every &amp;/&apos; came back literally in the rebuilt XML. */
+static char *decode_entities(const char *start, size_t len) {
     char *val = malloc(len + 1);
-    /* Decode entities: the decoder escapes & < > " ' on output, so without
-     * this every &amp;/&apos; came back literally in the rebuilt XML. */
     size_t j = 0;
     for (size_t i = 0; i < len; ) {
         static const struct { const char *e; char c; } ents[] = {
@@ -86,9 +79,35 @@ static char* parse_string(const char **p) {
         if (!done) val[j++] = start[i++];
     }
     val[j] = '\0';
+    return val;
+}
 
+static char* parse_string(const char **p) {
+    skip_ws(p);
+    if (**p != '"' && **p != '\'') return NULL;
+    char quote = *(*p)++;
+    const char *start = *p;
+    while (**p && **p != quote) (*p)++;
+    char *val = decode_entities(start, (size_t)(*p - start));
     if (**p == quote) (*p)++;
     return val;
+}
+
+/* Text node from [start, start+len) with trailing whitespace trimmed (the
+ * decoder indents text, and leading whitespace is skipped by the caller).
+ * Whitespace-only runs are formatting, not content: returns NULL. */
+static xml_node *make_text(const char *start, size_t len, int raw) {
+    while (len && isspace((unsigned char)start[len - 1])) len--;
+    if (!len) return NULL;
+    xml_node *t = calloc(1, sizeof(xml_node));
+    if (raw) {
+        t->text = malloc(len + 1);
+        memcpy(t->text, start, len);
+        t->text[len] = '\0';
+    } else {
+        t->text = decode_entities(start, len);
+    }
+    return t;
 }
 
 static xml_node* parse_element(const char **p) {
@@ -152,6 +171,14 @@ static xml_node* parse_element(const char **p) {
                 skip_ws(p);
                 if (**p == '>') (*p)++;
                 break;
+            } else if (strncmp(*p, "<![CDATA[", 9) == 0) {
+                const char *start = *p + 9;
+                const char *end = strstr(start, "]]>");
+                if (!end) end = start + strlen(start);
+                xml_node *t = make_text(start, (size_t)(end - start), 1);
+                if (t) { *last_child = t; last_child = &t->next; }
+                *p = *end ? end + 3 : end;
+                continue;
             } else if (**p == '<' && (*p)[1] == '!') {
                 // Comment <!...>
                 (*p) += 2;
@@ -162,8 +189,14 @@ static xml_node* parse_element(const char **p) {
             
             xml_node *child = parse_element(p);
             if (!child) {
-                // Text node or error - skip until '<'
+                // Character data up to the next tag (or junk after a bad tag)
+                const char *start = *p;
+                if (**p == '<') (*p)++;
                 while (**p && **p != '<') (*p)++;
+                if (*start != '<') {
+                    xml_node *t = make_text(start, (size_t)(*p - start), 0);
+                    if (t) { *last_child = t; last_child = &t->next; }
+                }
                 if (**p == '\0') break;
                 continue;
             }
@@ -221,6 +254,7 @@ static void free_nodes(xml_node *node) {
         xml_node *next = node->next;
         if (node->ns) free(node->ns);
         if (node->name) free(node->name);
+        free(node->text);
         free_attrs(node->attrs);
         free_nodes(node->children);
         free(node);
