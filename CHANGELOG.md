@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Native signature killer (`sigkill`)** — MT/NP-Manager-style APK signature-verification bypass implemented entirely in C, with five independent strategies selectable per run: `scan` (detect signature-check methods and hardcoded certificate digests), `stub` (neutralise boolean/int/String/`Signature`-returning check methods while preserving annotations), `pkg` (inject `com.agent.ej.SigKiller` and hook every `PackageInfo.signatures` read plus `SigningInfo.getApkContentsSigners()` / `getSigningCertificateHistory()` so the app keeps seeing the original certificate), `const` (rewrite hardcoded DER-hex/`toCharsString`, MD5, SHA-1, SHA-256, base64 and Java `hashCode` values from the original certificate to the one the APK is signed with), and `native` (patch the same digest strings in `lib/**/*.so` and `assets/**` in place). The original certificate is extracted natively from the APK's `META-INF/*.RSA` PKCS#7 block or supplied as DER/PEM. Handles both APK input (decode → patch → rebuild → sign) and decoded trees, and normalises PEM certificates to DER for the signer. `pkg` and `const`/`native` are mutually exclusive strategies and are resolved automatically. Adds `include/sigkill.h`, `src/android/sigkill/` (nine small modules) and the `sigkill`/`signature_killer`/`sig_killer` tool aliases.
+- **Fixed the tool schema JSON** — three missing commas (`arsc_encode`, `arsc_info`, `arsc_compile`) made `cJSON_Parse` reject the whole schema, so `tools`/`tools_get_definitions` returned nothing to the LLM. The schema now parses and lists all 31 built-in tools, including `sigkill`.
+
+
 ## [0.10.0] - 2026-10-29
 
 ### Fixed

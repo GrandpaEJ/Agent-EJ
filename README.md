@@ -51,6 +51,7 @@ A complete, native APK round-trip pipeline isolated inside [`src/android/`](src/
 | **ZIP / APK container** | Extraction, packing, zipalign (4-byte alignment) | ✅ Complete |
 | **APK Signing** | JAR v1 (SHA-1/SHA-256, apksigner-compatible digest selection) and APK Signature Scheme v2/v3 | ✅ Complete |
 | **ADB client** | Native Android Debug Bridge protocol — install, push/pull, shell, logcat, uninstall | ✅ Complete |
+| **Signature killer** | MT/NP-style verification bypass: method stubbing, `PackageInfo`/`SigningInfo` runtime hijack, hardcoded digest rewriting, and native/asset digest patching | ✅ Complete |
 
 The entire pipeline runs **in-process** — no `apktool`, no `jarsigner`, no shelling out to Java — and decodes/rebuilds multidex apps with 10,000+ classes while staying stable across repeated round trips.
 
@@ -124,6 +125,37 @@ app_rebuilt.apk              (re-assembled, zipaligned, v1+v2/v3 signed)
 ```
 
 Both directions are implemented natively — disassembly, assembly, resource recompilation, zipalign, and signing all happen inside the same binary with no intermediate Java process.
+
+## Signature Killer (`sigkill`)
+
+Repackaged APKs are signed with a different certificate, so apps that verify their own signature refuse to run. `sigkill` offers the same family of bypasses MT Manager and NP Manager expose, each as a separate mode that can be combined where they do not conflict:
+
+| Mode | Technique |
+|---|---|
+| `scan` | Report every method touching `PackageManager`/`PackageInfo`/`Signature`/`SigningInfo` and every hardcoded certificate digest |
+| `stub` | Replace boolean/int/String/signature-check method bodies with a passing implementation (annotations preserved) |
+| `pkg` | Inject `com.agent.ej.SigKiller`, which rewrites `PackageInfo.signatures` and wraps every `Signature[]`/`SigningInfo` read so the app sees the **original** certificate at runtime |
+| `const` | Rewrite hardcoded certificate digests (DER hex / `toCharsString`, MD5, SHA-1, SHA-256, base64, Java `hashCode`) from the original to the certificate the APK is actually signed with |
+| `native` | Patch the same digest strings inside `lib/**/*.so` and `assets/**` in place (same encoding ⇒ same length) |
+
+`pkg` is the runtime strategy (app keeps seeing the original signature); `const`/`native` are the static strategy (app is taught the new signature). Do not combine those two families for one app — `sigkill` automatically disables `pkg` when `const` is requested.
+
+```bash
+# One-shot: decode → patch → rebuild → sign
+./agent-ej tool sigkill path=app.apk out=app_killed.apk mode=all
+
+# Runtime hijack only, keep the original cert visible to the app
+./agent-ej tool sigkill path=app.apk out=app_killed.apk mode=pkg
+
+# Static rewrite to a new signing certificate, incl. native checks
+./agent-ej tool sigkill path=app.apk out=app_killed.apk mode=const,native cert=newcert.pem
+
+# Dry run on a decoded tree — report only
+./agent-ej tool sigkill path=app_src mode=scan dry_run=1
+```
+
+If `orig=`/`orig_cert=` is omitted the original certificate is taken from the input APK's `META-INF/*.RSA` (PKCS#7), so a normal decode→rebuild flow needs no extra files.
+
 
 ## Configuration (`.env`)
 
