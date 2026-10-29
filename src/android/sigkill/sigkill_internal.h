@@ -33,6 +33,11 @@ int sk_replace_all(char **text, size_t *len, const char *oldv, const char *newv)
 int sk_has(const char *s, const char *needle);
 int sk_icontains(const char *hay, const char *needle);
 
+/* Rewrite one smali `invoke-virtual[/range]` line into `invoke-static`,
+ * preserving indentation and the register list, pointing at `sig`.
+ * Returns a malloc'd line (with newline) or NULL if the shape is unexpected. */
+char *sk_rewrite_invoke_static(const char *line, size_t len, const char *sig);
+
 /* --- digests ----------------------------------------------------------- */
 int  sk_md5(const void *data, size_t len, uint8_t out[16]);
 void sk_hex(const uint8_t *d, size_t n, char *out, int upper);
@@ -59,11 +64,22 @@ char *sk_process_smali(const char *text, size_t len, const sigkill_opts *o,
 /* Inject hook calls inside one method block. Returns malloc'd text. */
 char *sk_pkg_inject_block(const char *block, size_t len, sigkill_report *r,
                           const char *file, int *sites);
+char *sk_sigobj_inject_block(const char *block, size_t len, sigkill_cert *c,
+                             sigkill_report *r, const char *file, int *sites);
+char *sk_checkapi_inject_block(const char *block, size_t len, sigkill_report *r,
+                               const char *file, int *sites);
+char *sk_call_rewrite_block(const char *block, size_t len, sigkill_report *r,
+                            const char *file, int *sites);
 
 /* Neutralise one detected method block. */
 char *sk_stub_block(const char *block, size_t len, const char *file,
                     const char *name, const char *ret,
                     sigkill_cert *c, sigkill_report *r);
+
+/* Chain all selected call-site transforms over a method block. */
+char *sk_chain_transforms(const char *block, size_t len,
+                          const sigkill_opts *o, sigkill_cert *c,
+                          sigkill_report *r, const char *file);
 
 /* Generate the runtime hook class source. */
 char *sk_helper_smali(const sigkill_cert *c, size_t *len);
@@ -71,5 +87,9 @@ char *sk_helper_smali(const sigkill_cert *c, size_t *len);
 /* --- native / asset digest patching ------------------------------------ */
 int sk_native_patch(const char *tree, sigkill_cert *c,
                     int patch, sigkill_report *r);
+
+/* --- self-archive certificate retargeting ------------------------------ */
+int sk_zipcert_run(const char *tree, const char *orig_apk, int dry_run,
+                   sigkill_report *r);
 
 #endif /* SIGKILL_INTERNAL_H */

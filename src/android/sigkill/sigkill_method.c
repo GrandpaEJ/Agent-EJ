@@ -12,6 +12,7 @@ static const char *SIG_API[] = {
     "Landroid/content/pm/PackageManager;->getInstalledApplications",
     "Landroid/content/pm/PackageInfo;->signatures",
     "Landroid/content/pm/PackageInfo;->signingInfo",
+    "Landroid/content/pm/PackageManager;->checkSignatures",
     "Landroid/content/pm/SigningInfo;",
     "Landroid/content/pm/Signature;",
     "Ljava/security/cert/X509Certificate;",
@@ -143,7 +144,14 @@ static char *process_block(const char *block, size_t len,
     int named = name_is_check(name, o->extra_names);
     int suspicious = has_api && (named || o->aggressive);
 
-    if (!has_api && !named) return NULL;
+    if (!has_api && !named) {
+        /* Call-site transforms must still run: the check may call
+         * checkSignatures() or Signature methods without matching a name
+         * heuristic or using one of the report tokens. */
+        if (skip || !(o->do_pkg || o->do_call || o->do_sigobj || o->do_checkapi))
+            return NULL;
+        return sk_chain_transforms(block, len, o, c, r, file);
+    }
     r->checks_found++;
     sk_detail(r, has_api ? "sig_api" : "sig_name", file, "%s()%s", name, ret);
 
@@ -163,15 +171,8 @@ static char *process_block(const char *block, size_t len,
             sk_detail(r, "stub_skip", file, "%s()%s: no safe stub", name, ret);
     }
 
-    if (o->do_pkg && !skip) {
-        int sites = 0;
-        char *nb = sk_pkg_inject_block(block, len, r, file, &sites);
-        if (nb && sites > 0) {
-            r->pkg_sites_patched += sites;
-            return nb;
-        }
-        free(nb);
-    }
+    if (!skip && (o->do_pkg || o->do_call || o->do_sigobj || o->do_checkapi))
+        return sk_chain_transforms(block, len, o, c, r, file);
     return NULL;
 }
 
@@ -180,7 +181,8 @@ char *sk_process_smali(const char *text, size_t len, const sigkill_opts *o,
                        sigkill_cert *c, sigkill_report *r, const char *file,
                        int *stubbed) {
     /* Never touch our own injected hook class. */
-    if (mem_has(text, len, "Lcom/agent/ej/SigKiller;")) return NULL;
+    if (mem_has(text, len, ".class public final Lcom/agent/ej/SigKiller;"))
+        return NULL;
     sk_buf out;
     sk_buf_init(&out);
     int changed = 0;

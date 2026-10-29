@@ -115,7 +115,9 @@ int sigkill_run(const sigkill_opts *o, sigkill_report *r) {
     if (!o || !o->src_dir || !r) return -1;
     if (!sk_is_dir(o->src_dir)) return -1;
 
-    int need_cert = o->do_pkg || o->do_const || o->do_stub || o->do_native;
+    int need_cert = o->do_pkg || o->do_const || o->do_stub || o->do_native ||
+                    o->do_call || o->do_sigobj || o->do_checkapi ||
+                    o->do_zipcert;
     sigkill_cert cert;
     memset(&cert, 0, sizeof(cert));
     if (sigkill_cert_load(&cert, o->orig_cert, o->orig_apk, o->src_dir) != 0 &&
@@ -148,7 +150,10 @@ int sigkill_run(const sigkill_opts *o, sigkill_report *r) {
     struct smali_ctx ctx = { o, &cert, r };
     run_smali_tree(o->src_dir, &ctx);
 
-    if (o->do_pkg && !o->dry_run && cert.sig_b64) {
+    if (o->do_zipcert)
+        sk_zipcert_run(o->src_dir, o->orig_apk, o->dry_run, r);
+
+    if ((o->do_pkg || o->do_call || o->do_sigobj) && !o->dry_run && cert.sig_b64) {
         if (inject_helper(o->src_dir, &cert, r) != 0) {
             sigkill_cert_free(&cert);
             return -1;

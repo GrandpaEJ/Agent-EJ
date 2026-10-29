@@ -3,20 +3,27 @@
 
 /* Native APK signature-verification killer.
  *
- * Five independent techniques, mirroring what MT Manager / NP Manager expose
+ * Nine independent techniques, mirroring what MT Manager / NP Manager expose
  * as separate "signature killer" modes:
  *
- *   scan   - report every signature-check method and signature constant
- *   stub   - replace boolean/int/String signature-check bodies with a pass
- *   pkg    - inject a runtime hook that makes PackageInfo/SigningInfo report
- *            the ORIGINAL certificate again (works without knowing digests)
- *   const  - rewrite hardcoded certificate digests (MD5/SHA-1/SHA-256, hex,
- *            base64, toCharsString, hashCode) from the old to the new cert
- *   native - patch the same digests embedded in the lib and assets directories
+ *   scan     - report every signature-check method and signature constant
+ *   stub     - replace boolean/int/String signature-check bodies with a pass
+ *   pkg      - inject a runtime hook that makes PackageInfo/SigningInfo report
+ *              the ORIGINAL certificate again (works without knowing digests)
+ *   call     - retarget PackageManager.getPackageInfo/getPackageArchiveInfo/
+ *              getInstalledPackages to a wrapper that fixes the result
+ *   sigobj   - override Signature.toCharsString/toByteArray/hashCode/equals
+ *              results at their call sites with the original certificate
+ *   checkapi - force PackageManager.checkSignatures(...) to SIGNATURE_MATCH
+ *   const    - rewrite hardcoded certificate digests (MD5/SHA-1/SHA-256, hex,
+ *              base64, toCharsString, hashCode) from the old to the new cert
+ *   native   - patch the same digests embedded in the lib and assets dirs
+ *   zipcert  - retarget code that opens "META-INF/CERT.RSA" in its own APK to
+ *              a copy of the ORIGINAL signature block under assets/sigkill/
  *
- * `pkg` and `const`/`native` are opposite strategies: `pkg` keeps the app
- * seeing the original signature, while `const` teaches the app that the new
- * signature is the real one.  Do not combine them for the same app.
+ * `pkg`/`call`/`sigobj`/`checkapi`/`zipcert` keep the app seeing the original
+ * signature; `const`/`native` teach it the new one.  Do not combine those two
+ * families for the same app.
  */
 
 #include <stddef.h>
@@ -53,6 +60,10 @@ typedef struct {
     int do_stub;
     int do_const;
     int do_pkg;
+    int do_call;
+    int do_sigobj;
+    int do_checkapi;
+    int do_zipcert;
     int do_native;            /* patch digests in lib/ and assets/ */
     int aggressive;           /* stub methods that only look like checks */
     int dry_run;              /* report, never modify the tree */
@@ -67,6 +78,11 @@ typedef struct {
     int const_files;
     int pkg_sites_patched;
     int pkg_files;
+    int call_sites_patched;
+    int sigobj_sites_patched;
+    int checkapi_sites_patched;
+    int zipcert_files;
+    int zipcert_consts;
     int helper_injected;
     int native_files_scanned;
     int native_files_patched;

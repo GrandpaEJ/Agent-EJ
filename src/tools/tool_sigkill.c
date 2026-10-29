@@ -43,13 +43,25 @@ static void parse_mode(const char *mode, sigkill_opts *o) {
                  strcmp(tok, "runtime") == 0){ o->do_pkg = 1; any = 1; }
         else if (strcmp(tok, "const") == 0 ||
                  strcmp(tok, "static") == 0){ o->do_const = 1; any = 1; }
+        else if (strcmp(tok, "call") == 0 ||
+                 strcmp(tok, "wrap") == 0)  { o->do_call = 1; any = 1; }
+        else if (strcmp(tok, "sigobj") == 0 ||
+                 strcmp(tok, "sigapi") == 0) { o->do_sigobj = 1; any = 1; }
+        else if (strcmp(tok, "checkapi") == 0 ||
+                 strcmp(tok, "check") == 0)  { o->do_checkapi = 1; any = 1; }
+        else if (strcmp(tok, "zipcert") == 0 ||
+                 strcmp(tok, "archive") == 0) { o->do_zipcert = 1; any = 1; }
         else if (strcmp(tok, "native") == 0){ o->do_native = 1; any = 1; }
         else if (strcmp(tok, "all") == 0) {
             o->do_scan = o->do_stub = o->do_pkg = 1;
+            o->do_call = o->do_sigobj = o->do_checkapi = o->do_zipcert = 1;
             any = 1;
         }
     }
-    if (!any) { o->do_scan = o->do_stub = o->do_pkg = 1; }
+    if (!any) {
+        o->do_scan = o->do_stub = o->do_pkg = 1;
+        o->do_call = o->do_sigobj = o->do_checkapi = o->do_zipcert = 1;
+    }
 }
 
 /* apk_build treats cert= as raw DER; accept PEM/PKCS#7 here by
@@ -94,6 +106,11 @@ static char *report_json(const sigkill_report *r, const char *mode,
     cJSON_AddNumberToObject(counts, "checks_found", r->checks_found);
     cJSON_AddNumberToObject(counts, "methods_stubbed", r->methods_stubbed);
     cJSON_AddNumberToObject(counts, "pkg_sites_patched", r->pkg_sites_patched);
+    cJSON_AddNumberToObject(counts, "call_sites_patched", r->call_sites_patched);
+    cJSON_AddNumberToObject(counts, "sigobj_sites_patched", r->sigobj_sites_patched);
+    cJSON_AddNumberToObject(counts, "checkapi_sites_patched", r->checkapi_sites_patched);
+    cJSON_AddNumberToObject(counts, "zipcert_files", r->zipcert_files);
+    cJSON_AddNumberToObject(counts, "zipcert_consts", r->zipcert_consts);
     cJSON_AddNumberToObject(counts, "consts_replaced", r->consts_replaced);
     cJSON_AddNumberToObject(counts, "const_files", r->const_files);
     cJSON_AddNumberToObject(counts, "native_files_scanned", r->native_files_scanned);
@@ -171,7 +188,10 @@ char *execute_sigkill(cJSON *args) {
     o.dry_run = dry;
     o.aggressive = aggressive;
     parse_mode(mode, &o);
-    if (o.do_const && o.do_pkg) o.do_pkg = 0; /* opposite strategies */
+    if (o.do_const) {
+        /* static rewrite and runtime-original hooks are opposite strategies */
+        o.do_pkg = o.do_call = o.do_sigobj = o.do_checkapi = o.do_zipcert = 0;
+    }
 
     sigkill_report rep;
     sigkill_report_init(&rep);

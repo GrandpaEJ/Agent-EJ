@@ -204,7 +204,41 @@ char *sk_helper_smali(const sigkill_cert *c, size_t *len) {
                     "    goto :loop\n"
                     "    :done\n"
                     "    return-void\n"
-                    ".end method\n");
+                    ".end method\n\n");
+
+    /* Wrappers used by the `call` technique: same register list as the
+     * original invoke-virtual (receiver + args) turns into invoke-static. */
+    sk_buf_adds(&b, ".method public static getPackageInfo(Landroid/content/pm/PackageManager;Ljava/lang/String;I)Landroid/content/pm/PackageInfo;\n"
+                    "    .locals 1\n"
+                    "    invoke-virtual {p0, p1, p2}, Landroid/content/pm/PackageManager;->getPackageInfo(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;\n"
+                    "    move-result-object v0\n"
+                    "    invoke-static {v0}, Lcom/agent/ej/SigKiller;->fix(Landroid/content/pm/PackageInfo;)V\n"
+                    "    return-object v0\n"
+                    ".end method\n\n"
+                    ".method public static getPackageArchiveInfo(Landroid/content/pm/PackageManager;Ljava/lang/String;I)Landroid/content/pm/PackageInfo;\n"
+                    "    .locals 1\n"
+                    "    invoke-virtual {p0, p1, p2}, Landroid/content/pm/PackageManager;->getPackageArchiveInfo(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;\n"
+                    "    move-result-object v0\n"
+                    "    invoke-static {v0}, Lcom/agent/ej/SigKiller;->fix(Landroid/content/pm/PackageInfo;)V\n"
+                    "    return-object v0\n"
+                    ".end method\n\n"
+                    ".method public static getInstalledPackages(Landroid/content/pm/PackageManager;I)Ljava/util/List;\n"
+                    "    .locals 1\n"
+                    "    invoke-virtual {p0, p1}, Landroid/content/pm/PackageManager;->getInstalledPackages(I)Ljava/util/List;\n"
+                    "    move-result-object v0\n"
+                    "    invoke-static {v0}, Lcom/agent/ej/SigKiller;->fixList(Ljava/util/List;)V\n"
+                    "    return-object v0\n"
+                    ".end method\n\n");
+
+    /* Original certificate bytes for `sigobj` (Signature.toByteArray). */
+    sk_buf_addf(&b, ".method public static toBytes(Landroid/content/pm/Signature;)[B\n"
+                    "    .locals 2\n"
+                    "    const-string v0, \"%s\"\n"
+                    "    const/4 v1, 0x0\n"
+                    "    invoke-static {v0, v1}, Landroid/util/Base64;->decode(Ljava/lang/String;I)[B\n"
+                    "    move-result-object v0\n"
+                    "    return-object v0\n"
+                    ".end method\n", c->sig_b64);
 
     if (len) *len = b.len;
     return sk_buf_take(&b);
