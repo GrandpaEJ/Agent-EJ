@@ -138,10 +138,17 @@ char *execute_sigkill(cJSON *args) {
     int dry = arg_int(args, "dry_run", 0) || arg_int(args, "scan_only", 0);
     int aggressive = arg_int(args, "aggressive", 0);
 
+    char default_out[4096];
+    int input_is_dir = is_dir(path);
+    if (!out && !input_is_dir) {
+        snprintf(default_out, sizeof(default_out), "%s.sigkill.apk", path);
+        out = default_out;
+    }
+
     char tmp[4096] = "";
     const char *tree = path;
     int cleanup = 0;
-    if (!is_dir(path)) {
+    if (!input_is_dir) {
         snprintf(tmp, sizeof(tmp), "/tmp/opencode/sigkillXXXXXX");
         if (!mkdtemp(tmp))
             return strdup("{\"status\": 1, \"error\": \"Cannot create temp dir\"}");
