@@ -5,7 +5,7 @@
     decode, edit, and rebuild APKs without Java, JDK, or apktool.</strong>
   </p>
   <p align="center">
-    <a href="https://github.com/GrandpaEJ/Agent-EJ/releases"><img alt="version" src="https://img.shields.io/badge/version-v0.9.4-blue"></a>
+    <a href="https://github.com/GrandpaEJ/Agent-EJ/releases"><img alt="version" src="https://img.shields.io/badge/version-v0.10.0-blue"></a>
     <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-blue"></a>
     <img alt="language" src="https://img.shields.io/badge/language-C11-00599C">
     <img alt="dependencies" src="https://img.shields.io/badge/dependencies-zero-brightgreen">

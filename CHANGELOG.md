@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-29
+
 ### Fixed
 - **Reference resolution picked the wrong resource in obfuscated tables** — `arsc_lookup_id()` returned the first entry whose key matched, but name-obfuscated apps give many entries the same key (e.g. every string named `HEHE_BOI`). A manifest `@string` reference then decoded to a name that re-encoded to a *different* entry, so a rebuilt AntiSplit-X showed `android:label` as "About" instead of its real title. The lookup now verifies the name maps back to the same resource ID and returns NULL (printing `@ref/0x…`) when it does not, keeping the numeric ID exact through a round trip.
 - **XML text content was silently dropped when encoding binary XML** — the text parser skipped everything between tags, so `<item>Hello</item>` was rebuilt as `<item />`. Text runs (entity-decoded, trailing indentation trimmed, whitespace-only runs ignored) and `<![CDATA[...]]>` sections now become text nodes and are written as `RES_XML_CDATA` chunks, in document order alongside child elements.
