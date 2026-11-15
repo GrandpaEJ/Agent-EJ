@@ -25,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,6 +60,8 @@ import org.agentej.android.dirHint
 import org.agentej.android.extractTo
 
 /** A dialog the commander is showing over the panes. */
+private const val STORAGE_ROOT = "/storage/emulated/0"
+
 private sealed interface Popup {
     data class Menu(val st: BrowserState, val e: FsEntry) : Popup
     data class Type(val t: Target, val acts: List<Act>) : Popup
@@ -195,7 +198,22 @@ fun Commander(
     BackHandler(enabled = !st.selecting && st.searching) {
         st.searching = false; st.query = ""; st.deepHits = null
     }
-    BackHandler(enabled = !st.selecting && !st.searching && pane.canBack) { pane.back() }
+    /* Back: pane history first, then up a folder (not above internal storage),
+     * and at the top a second press within 2 s closes the app, as in MT */
+    var exitArmedAt by remember { mutableLongStateOf(0L) }
+    BackHandler(enabled = !st.selecting && !st.searching) {
+        val up = Util.up(pane.path)
+        val atTop = pane.path.trimEnd('/').let { it == STORAGE_ROOT || it == "/sdcard" || it.isEmpty() }
+        when {
+            pane.canBack -> pane.back()
+            up != null && !atTop -> pane.open(up)
+            android.os.SystemClock.uptimeMillis() - exitArmedAt < 2000 -> (context as? android.app.Activity)?.finish()
+            else -> {
+                exitArmedAt = android.os.SystemClock.uptimeMillis()
+                android.widget.Toast.makeText(context, "Press again to exit", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     val nav = BrowserNav(
         canBack = pane.canBack, canForward = pane.canForward,

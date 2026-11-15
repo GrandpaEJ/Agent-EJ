@@ -63,6 +63,8 @@ object Native {
     external fun dexOpen(archive: String, entry: String): Long
     external fun dexClassSmali(handle: Long, index: Int): String
     external fun dexClose(handle: Long)
+    /** Search one dex: rows "classIdx\tline\ttext"; null on an invalid query. kind/flags as dex_find.h. */
+    external fun dexFind(archive: String, entry: String, kind: Int, query: String, flags: Int, scope: String, limit: Int): Array<String>?
     external fun dexToSmaliDir(archive: String, entry: String?, outDir: String): String
     external fun readBytes(path: String, offset: Long, max: Int): ByteArray?
 

@@ -66,7 +66,10 @@ import org.agentej.android.Util
 private const val EDIT_LIMIT = 256 * 1024
 
 @Composable
-fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Unit) {
+fun ViewerScreen(
+    title: String, body: String, source: String?, onBack: () -> Unit,
+    focusLine: Int = -1, focusText: String? = null
+) {
     val scope = rememberCoroutineScope()
     val clip = LocalClipboardManager.current
     val snack = remember { SnackbarHostState() }
@@ -91,13 +94,27 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
     val dirty = editing && draft != text
     val canEdit = source != null && text.length <= EDIT_LIMIT
 
+    /* a search-hit highlight stays until the user's own find replaces it */
+    var focusPinned by remember { mutableStateOf(focusLine >= 0) }
     LaunchedEffect(query, lines) {
+        if (query.isEmpty() && focusPinned) return@LaunchedEffect
+        focusPinned = false
         delay(150)
         matches = withContext(Dispatchers.Default) { findMatches(lines, query) }
         active = if (matches.isEmpty()) -1 else 0
     }
     LaunchedEffect(active) {
         matches.getOrNull(active)?.let { list.scrollToItem((it.line - 4).coerceAtLeast(0)) }
+    }
+
+    /* opened on a search hit: bring its line up and mark the hit (or the whole line) */
+    LaunchedEffect(Unit) {
+        if (focusLine !in lines.indices) return@LaunchedEffect
+        val l = lines[focusLine]
+        val col = focusText?.let { l.indexOf(it, ignoreCase = true) } ?: -1
+        matches = listOf(if (col >= 0) Match(focusLine, col, col + focusText!!.length) else Match(focusLine, l.length - l.trimStart().length, l.length))
+        active = 0
+        list.scrollToItem((focusLine - 4).coerceAtLeast(0))
     }
 
     fun step(d: Int) {

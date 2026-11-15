@@ -178,6 +178,11 @@ class DexEditorState(val src: DexSource) {
     var query by mutableStateOf<String?>(null)
     val treeList = LazyListState()
     val findList = LazyListState()
+    val searchList = LazyListState()
+    /** 0 = Explorer, 1 = Search */
+    var tab by mutableStateOf(0)
+    internal var search by mutableStateOf<SearchResult?>(null)
+    var lastSpec = SearchSpec("")
     private var handle = 0L
     private var handleDex = -1
 
@@ -215,7 +220,7 @@ class DexEditorState(val src: DexSource) {
  * dex of the last opened class parsed, so RAM stays at one dex.
  */
 @Composable
-fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (String, String) -> Unit) {
+fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (title: String, body: String, line: Int, needle: String?) -> Unit) {
     val src = state.src
     val scope = rememberCoroutineScope()
     LaunchedEffect(state) { state.load() }
@@ -227,28 +232,54 @@ fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (String, 
         if (q.isEmpty()) null else classes.orEmpty().filter { q in it.full.lowercase(Locale.US) }.take(2000)
     }
     var busy by remember { mutableStateOf(false) }
-    fun open(c: DexCls) {
+    var searching by remember { mutableStateOf<String?>(null) }
+    var askSearch by remember { mutableStateOf(false) }
+    /** [line] is a 0-based line of the class smali (-1: top); [needle] is highlighted on it. */
+    fun open(c: DexCls, line: Int = -1, needle: String? = null) {
         if (busy) return
         busy = true
         scope.launch {
             val text = withContext(Dispatchers.IO) { state.smali(c) }
             busy = false
-            onView("${c.simple}.smali", "# ${src.label(c.dex)}\n\n$text")
+            /* two header lines ("# classesN.dex", blank) sit above the smali */
+            onView("${c.simple}.smali", "# ${src.label(c.dex)}\n\n$text", if (line < 0) -1 else line + 2, needle)
         }
+    }
+    fun runSearchNow(spec: SearchSpec) {
+        state.lastSpec = spec
+        askSearch = false
+        searching = "Searching…"
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runSearch(state, spec) { msg -> searching = msg } }
+            state.search = r
+            searching = null
+            state.searchList.scrollToItem(0)
+        }
+    }
+    fun openHit(h: SearchHit) {
+        if (h.text.isEmpty()) return open(h.cls)
+        val needle = state.search?.spec?.let { sp -> hitRange(h.text, sp)?.let { h.text.substring(it) } }
+        open(h.cls, h.line, needle)
     }
     var query by state::query
     var expanded by state::expanded
     /* Back closes the class finder before it leaves the editor */
     androidx.activity.compose.BackHandler(enabled = query != null) { query = null }
+    /* ... and from the Search tab Back returns to the Explorer */
+    androidx.activity.compose.BackHandler(enabled = query == null && state.tab == 1 && searching == null) { state.tab = 0 }
+    if (askSearch) DexSearchDialog(state.lastSpec, onSearch = ::runSearchNow, onDismiss = { askSearch = false })
 
     val subtitle = classes?.let { "${it.size} classes · ${src.entries.size} dex" } ?: "Reading…"
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
         EjTopBar("Dex Editor", subtitle, leading = {
             IconBtn(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
         }) {
-            if (query == null) IconBtn(Icons.Filled.Search, "Find class") { query = "" }
-            else IconBtn(Icons.Filled.Close, "Close find") { query = null }
+            if (state.tab == 0) {
+                if (query == null) IconBtn(Icons.Filled.Search, "Find class") { query = "" }
+                else IconBtn(Icons.Filled.Close, "Close find") { query = null }
+            }
         }
+        DexTabs(state.tab) { state.tab = it; if (it == 1) query = null }
         if (query != null) {
             val focus = remember { androidx.compose.ui.focus.FocusRequester() }
             LaunchedEffect(Unit) { focus.requestFocus() }
@@ -263,11 +294,12 @@ fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (String, 
                 modifier = Modifier.fillMaxWidth().focusRequester(focus)
             )
         }
-        Box(Modifier.fillMaxWidth().height(2.dp)) { if (busy) LinearProgressIndicator(Modifier.fillMaxSize()) }
+        Box(Modifier.fillMaxWidth().height(2.dp)) { if (busy || searching != null) LinearProgressIndicator(Modifier.fillMaxSize()) }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         when {
             classes == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             classes!!.isEmpty() -> EmptyState("No classes", "None of the chosen files is a readable DEX.")
+            state.tab == 1 -> DexSearchPane(state, searching, onNew = { askSearch = true }, onOpen = ::openHit)
             hits != null -> LazyColumn(Modifier.fillMaxSize(), state = state.findList) {
                 items(hits) { c -> ClassRow(c.simple, c.pkg, 0) { open(c) } }
             }
@@ -281,6 +313,22 @@ fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (String, 
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun DexTabs(selected: Int, onSelect: (Int) -> Unit) {
+    androidx.compose.material3.SecondaryTabRow(
+        selectedTabIndex = selected, containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        listOf("EXPLORER", "SEARCH").forEachIndexed { i, label ->
+            androidx.compose.material3.Tab(
+                selected = selected == i, onClick = { onSelect(i) },
+                text = { Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium) },
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -329,3 +377,4 @@ private fun ClassRow(name: String, pkg: String?, depth: Int, onClick: () -> Unit
 }
 
 private val RoundedCorner6 = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+
