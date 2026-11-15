@@ -184,7 +184,8 @@ fun Commander(
             FileKind.IMAGE -> act(Act.IMAGE, t)
             FileKind.AUDIO, FileKind.VIDEO, FileKind.PDF ->
                 if (t.inArchive) popup = Popup.OpenWith(t) else act(Act.EXTERNAL, t)
-            FileKind.APK, FileKind.SPLITS, FileKind.DEX, FileKind.ARSC ->
+            FileKind.APK -> if (t.inArchive) popup = Popup.Type(t, FileKinds.actions(t.kind, true)) else { s.apkSig = false; s.apkInfo = t.path }
+            FileKind.SPLITS, FileKind.DEX, FileKind.ARSC ->
                 popup = Popup.Type(t, FileKinds.actions(t.kind, t.inArchive))
             FileKind.UNKNOWN -> popup = Popup.OpenWith(t)
         }
@@ -333,6 +334,20 @@ fun Commander(
         )
     }
     panes.forEach { BrowserDialogs(it.st, perform = { op -> perform(op) }) }
+    panes.forEach { pn ->
+        val ps = pn.st
+        val apk = ps.apkInfo ?: return@forEach
+        val t = org.agentej.android.Target(apk, false)
+        ApkInfoDialog(
+            apk, sigOpen = ps.apkSig, onSig = { ps.apkSig = it },
+            onFunction = { ps.apkInfo = null; popup = Popup.Type(t, FileKinds.actions(FileKind.APK, false)) },
+            onView = { ps.apkInfo = null; act(Act.ARCHIVE, t) },
+            onInstall = { ps.apkInfo = null; act(Act.INSTALL, t) },
+            onOpenDir = { ps.apkInfo = null; pn.open("${it.trimEnd('/')}/") },
+            onHex = { push(Route.Hex(org.agentej.android.Target(it, false))) },
+            onDismiss = { ps.apkInfo = null }
+        )
+    }
     busy?.let { BusyDialog(it) }
 }
 

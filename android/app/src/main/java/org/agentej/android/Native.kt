@@ -82,6 +82,8 @@ object Native {
     // apk
     external fun apkAnalyze(path: String): String
     external fun apkInfo(path: String): Array<String>?
+    /** apk_sig_schemes bits: 1 V1, 2 V2, 4 V3, 8 V3.1, 16 source stamp; -1 unreadable. */
+    external fun apkSigSchemes(path: String): Int
     external fun signApk(input: String, output: String): String
     external fun apkDecode(apk: String, outDir: String): String
     external fun apkBuild(srcDir: String, outApk: String): String

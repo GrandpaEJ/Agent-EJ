@@ -56,6 +56,9 @@ class BrowserState(val path: String) {
 
     var menuFor by mutableStateOf<FsEntry?>(null)
     var dialog by mutableStateOf<BrowserDialog?>(null)
+    /** APK info dialog (and its signature sheet) for this path; kept here so it survives a hex view on top. */
+    var apkInfo by mutableStateOf<String?>(null)
+    var apkSig by mutableStateOf(false)
 
     fun full(e: FsEntry) = Util.join(path, e.name)
 
