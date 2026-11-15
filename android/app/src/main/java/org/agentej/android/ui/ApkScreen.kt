@@ -20,6 +20,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -33,6 +35,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -58,7 +61,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
     val baseDir = apkPath.substringBeforeLast('/', "/sdcard")
     val baseName = fileName.substringBeforeLast('.')
 
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     val rows = remember { mutableStateListOf<ZipRow>() }
     val info = remember { mutableStateListOf<Pair<String, String>>() }
     val resStrings = remember { mutableStateListOf<String>() }
@@ -150,28 +153,16 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
         }
     }
 
-    Column(Modifier.fillMaxSize().safeDrawingPadding().background(MaterialTheme.colorScheme.background)) {
-        Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).safeDrawingPadding()) {
+        Surface(color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
-                    TextButton(onClick = onBack) { Text("\u2190", fontSize = 16.sp) }
-                    Column(Modifier.weight(1f).padding(top = 8.dp)) {
-                        Text(
-                            fileName,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            status,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(onClick = { task { Native.apkAnalyze(apkPath) } }) {
-                        Text("analyze", fontSize = 11.sp)
+                EjTopBar(
+                    title = fileName,
+                    subtitle = status,
+                    leading = { IconBtn(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack) }
+                ) {
+                    TextButton(enabled = !busy, onClick = { task { Native.apkAnalyze(apkPath) } }) {
+                        Text("ANALYZE", fontSize = 12.sp)
                     }
                 }
                 Row(
@@ -221,23 +212,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
             when (tab) {
                 0 -> LazyColumn(Modifier.fillMaxSize()) {
                     items(info) { (k, v) ->
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp)) {
-                            Text(
-                                k,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(0.38f),
-                                maxLines = 1
-                            )
-                            Text(
-                                if (k == "Size") Util.compactSize(v.toLongOrNull() ?: 0L) else v,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.weight(0.62f),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        FactRow(k, if (k == "Size") Util.compactSize(v.toLongOrNull() ?: 0L) else v)
                     }
                     if (info.isEmpty()) item {
                         Text(
@@ -275,13 +250,10 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                     }
                 }
 
-                2 -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
-                    Text(
-                        manifest ?: "decoding…",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp
-                    )
+                2 -> manifest.let { m ->
+                    if (m == null) EmptyState("Decoding manifest…")
+                    else if (m.isBlank()) EmptyState("No readable AndroidManifest.xml", "The entry is missing or not binary XML.")
+                    else CodeView(remember(m) { m.split('\n') }, Lang.XML, Modifier.fillMaxSize())
                 }
 
                 3 -> LazyColumn(Modifier.fillMaxSize()) {

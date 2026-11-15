@@ -33,6 +33,19 @@ object Util {
         return FsEntry(p[0], p[1] == "1", p[2].toLongOrNull() ?: 0L, p[3].toLongOrNull() ?: 0L)
     }
 
+    /** Folders first, then by [key]; hidden dot-files filtered unless [hidden]. */
+    fun sortEntries(list: List<FsEntry>, key: SortKey, desc: Boolean, hidden: Boolean): List<FsEntry> {
+        val visible = if (hidden) list else list.filter { !it.name.startsWith('.') }
+        val cmp: Comparator<FsEntry> = when (key) {
+            SortKey.NAME -> compareBy { it.name.lowercase(Locale.US) }
+            SortKey.DATE -> compareBy<FsEntry> { it.mtime }.thenBy { it.name.lowercase(Locale.US) }
+            SortKey.SIZE -> compareBy<FsEntry> { it.size }.thenBy { it.name.lowercase(Locale.US) }
+            SortKey.TYPE -> compareBy<FsEntry> { ext(it.name) }.thenBy { it.name.lowercase(Locale.US) }
+        }
+        val ordered = if (desc) cmp.reversed() else cmp
+        return visible.sortedWith(compareBy<FsEntry> { !it.isDir }.then(ordered))
+    }
+
     fun ext(name: String) = name.substringAfterLast('.', "").lowercase(Locale.US)
 
     fun isArchive(name: String) = ext(name) in archives
@@ -69,6 +82,21 @@ object Util {
         val trimmed = path.trimEnd('/')
         val i = trimmed.lastIndexOf('/')
         return if (i <= 0) "/" else trimmed.substring(0, i)
+    }
+
+    /** Parent for the Up button; keeps the trailing slash when the parent is inside an archive. */
+    fun up(path: String): String? {
+        if (path.trimEnd('/').isEmpty()) return null
+        val p = parent(path)
+        return if (splitArchive("$p/") != null) "$p/" else p
+    }
+
+    /** "/storage/emulated/0/Download" -> "Download"; "/" stays "/". */
+    fun title(path: String): String {
+        val t = path.trimEnd('/')
+        if (t.isEmpty()) return "/"
+        if (t == "/storage/emulated/0" || t == "/sdcard") return "Internal storage"
+        return t.substringAfterLast('/')
     }
 
     fun join(dir: String, name: String) = if (dir.endsWith("/")) "$dir$name" else "$dir/$name"
