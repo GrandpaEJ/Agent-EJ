@@ -180,7 +180,11 @@ class DexEditorState(val src: DexSource) {
     val treeList = LazyListState()
     val findList = LazyListState()
     val searchList = LazyListState()
-    /** 0 = Explorer, 1 = Search */
+    /** Strings tab: distinct pool strings of all open dex (loaded on first visit). */
+    internal var pool by mutableStateOf<List<PoolString>?>(null)
+    var poolFilter by mutableStateOf("")
+    val poolList = LazyListState()
+    /** 0 = Explorer, 1 = Search, 2 = Strings */
     var tab by mutableStateOf(0)
     internal var search by mutableStateOf<SearchResult?>(null)
     var lastSpec = SearchSpec("")
@@ -307,7 +311,34 @@ fun DexEditorScreen(
     /* Back closes the class finder before it leaves the editor */
     androidx.activity.compose.BackHandler(enabled = query != null) { query = null }
     /* ... and from the Search tab Back returns to the Explorer */
-    androidx.activity.compose.BackHandler(enabled = query == null && state.tab == 1 && searching == null) { state.tab = 0 }
+    androidx.activity.compose.BackHandler(enabled = query == null && state.tab != 0 && searching == null) { state.tab = 0 }
+    fun toast(msg: String) = android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+    fun findUses(value: String) {
+        state.tab = 1
+        searching = "Finding uses…"
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { stringUses(state, value) { msg -> searching = msg } }
+            state.search = r
+            searching = null
+            state.searchList.scrollToItem(0)
+        }
+    }
+    fun replace(old: String, new: String) {
+        if (busy) return
+        busy = true
+        searching = "Replacing…"
+        scope.launch {
+            val n = withContext(Dispatchers.IO) { replaceString(state, old, new) { msg -> searching = msg } }
+            busy = false
+            searching = null
+            toast(if (n == 0) "No class uses that string" else "Replaced in $n class${if (n == 1) "" else "es"} · compile with the hammer")
+        }
+    }
+    fun copy(value: String) {
+        (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+            .setPrimaryClip(android.content.ClipData.newPlainText("string", value))
+        toast("Copied")
+    }
     if (askSearch) DexSearchDialog(state.lastSpec, onSearch = ::runSearchNow, onDismiss = { askSearch = false })
 
     val subtitle = classes?.let {
@@ -326,7 +357,7 @@ fun DexEditorScreen(
                 else IconBtn(Icons.Filled.Close, "Close find") { query = null }
             }
         }
-        DexTabs(state.tab) { state.tab = it; if (it == 1) query = null }
+        DexTabs(state.tab) { state.tab = it; if (it != 0) query = null }
         if (query != null) {
             val focus = remember { androidx.compose.ui.focus.FocusRequester() }
             LaunchedEffect(Unit) { focus.requestFocus() }
@@ -347,6 +378,7 @@ fun DexEditorScreen(
             classes == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             classes!!.isEmpty() -> EmptyState("No classes", "None of the chosen files is a readable DEX.")
             state.tab == 1 -> DexSearchPane(state, searching, onNew = { askSearch = true }, onOpen = ::openHit)
+            state.tab == 2 -> DexStringsPane(state, searching, onUses = ::findUses, onReplace = ::replace, onCopy = ::copy)
             hits != null -> LazyColumn(Modifier.fillMaxSize(), state = state.findList) {
                 items(hits) { c -> ClassRow(c.simple, c.pkg, 0) { open(c) } }
             }
@@ -370,7 +402,7 @@ private fun DexTabs(selected: Int, onSelect: (Int) -> Unit) {
     androidx.compose.material3.SecondaryTabRow(
         selectedTabIndex = selected, containerColor = MaterialTheme.colorScheme.surface
     ) {
-        listOf("EXPLORER", "SEARCH").forEachIndexed { i, label ->
+        listOf("EXPLORER", "SEARCH", "STRINGS").forEachIndexed { i, label ->
             androidx.compose.material3.Tab(
                 selected = selected == i, onClick = { onSelect(i) },
                 text = { Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium) },

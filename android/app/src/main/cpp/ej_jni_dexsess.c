@@ -210,3 +210,29 @@ Java_org_agentej_android_Native_dexSave(JNIEnv *env, jobject thiz, jstring jarc,
     if (out) (*env)->ReleaseStringUTFChars(env, jout, out);
     return ej_jresult(env, rc, detail);
 }
+
+/* Dex editor Strings tab: the whole string pool of one dex, in pool order. */
+JNIEXPORT jobjectArray JNICALL
+Java_org_agentej_android_Native_dexStrings(JNIEnv *env, jobject thiz, jstring jarc, jstring jentry) {
+    (void)thiz;
+    const char *arc = (*env)->GetStringUTFChars(env, jarc, NULL);
+    const char *entry = jentry ? (*env)->GetStringUTFChars(env, jentry, NULL) : NULL;
+    jobjectArray arr = NULL;
+    if (arc) {
+        size_t len = 0;
+        uint8_t *data = (entry && entry[0]) ? ej_read_zip_entry(arc, entry, &len) : ej_read_file(arc, &len, 0);
+        dex_ctx *ctx = data ? dex_parse(data, len) : NULL;
+        uint32_t n = dex_string_count(ctx);
+        const char **items = ctx ? (const char **)malloc(sizeof(char *) * (n ? n : 1)) : NULL;
+        if (items) {
+            for (uint32_t i = 0; i < n; i++) items[i] = dex_string_at(ctx, i);
+            arr = ej_jstr_array(env, items, (int)n);
+            free(items);
+        }
+        if (ctx) dex_free(ctx);
+        free(data);
+    }
+    if (arc) (*env)->ReleaseStringUTFChars(env, jarc, arc);
+    if (entry) (*env)->ReleaseStringUTFChars(env, jentry, entry);
+    return arr;
+}
