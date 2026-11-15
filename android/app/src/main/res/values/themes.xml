@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AgentXMT" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0E1013</item>
+        <item name="android:statusBarColor">#14171C</item>
+        <item name="android:navigationBarColor">#14171C</item>
+        <item name="android:colorAccent">#3DDC84</item>
+    </style>
+</resources>

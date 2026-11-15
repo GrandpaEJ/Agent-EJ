@@ -44,3 +44,11 @@ resume_pdf.html
 .antigravitycli/
 
 
+
+# Android build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+android/.kotlin/
