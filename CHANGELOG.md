@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [New Released]
 
+## [0.13.3] - 2026-11-15
+
+### Fixed
+- smali: assembled DEX byte-identical to smali.jar — interned annotations/sets/ref lists, shared debug_info, interned encoded arrays, no empty class_data, minimal pools, SHA-1 padding fix
+
+
 ## [0.13.2] - 2026-11-15
 
 ### Fixed

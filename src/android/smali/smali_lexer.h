@@ -9,6 +9,11 @@ char *smali_parse_string_literal(char **p);
 uint32_t smali_parse_register(const char *tok);
 /* Parses a literal: optional "#", "-", decimal/hex/octal, optional L/s/t suffix; wraps to 64 bits. */
 int64_t smali_parse_lit(const char *tok);
+/* Floating-point literal as baksmali prints it: "1.5f"/"Infinityf"/"NaNf"
+ * (float), "1.5", "1.0E10", "Infinity", "-Infinity", "NaN" or "1.5d"
+ * (double). Returns 'F' or 'D' and stores the value, or 0 when tok is not one
+ * (hex and integer literals included). */
+int smali_parse_fp_lit(const char *tok, double *out);
 
 /* Source line tracking.
  *

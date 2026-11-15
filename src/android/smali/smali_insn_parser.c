@@ -140,45 +140,7 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
             free(reg_tok);
             free(tok);
             
-            /* Parse optional param body for annotations */
-            while (*start) {
-                char *save_p = start;
-                while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') start++;
-                if (!*start) break;
-                if (*start == '#') { char *nl = smali_eol(start); start = nl ? nl + 1 : start + strlen(start); continue; }
-                char *inner_tok = smali_next_token(&start);
-                if (!inner_tok) break;
-                if (strcmp(inner_tok, ".end") == 0) {
-                    char *sub = smali_next_token(&start);
-                    if (sub && strcmp(sub, "param") == 0) {
-                        free(sub); free(inner_tok); break;
-                    }
-                    if (sub) free(sub);
-                    start = save_p; free(inner_tok); break;
-                }
-                if (strcmp(inner_tok, ".annotation") == 0 && cur_param < m->param_name_count) {
-                    uint32_t pidx = cur_param;
-                    if (m->param_annot_counts[pidx] < MAX_ANNOTS) {
-                        if (!m->param_annots[pidx]) {
-                            m->param_annots[pidx] = calloc(MAX_ANNOTS, sizeof(smali_annotation_t));
-                        }
-                        smali_annotation_t ann;
-                        memset(&ann, 0, sizeof(ann));
-                        ann.visibility = 1;
-                        if (smali_parse_annot_block(&start, &ann, lc.line) != 0) {
-                            smali_annot_free(&ann);
-                            free(inner_tok); free(tok);
-                            return -1;
-                        }
-                        m->param_annots[pidx][m->param_annot_counts[pidx]++] = ann;
-                    }
-                    free(inner_tok);
-                    continue;
-                }
-                start = save_p;
-                free(inner_tok);
-                break;
-            }
+            if (smali_parse_param_body(&start, m, cur_param, lc.line) != 0) return -1;
             continue;
         } else if (strcmp(tok, ".prologue") == 0) {
             m->prologue_set = 1;
