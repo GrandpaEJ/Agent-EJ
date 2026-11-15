@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [New Released]
 
+## [0.12.1] - 2026-11-15
+
+### Fixed
+- smali: array static-field initializers encode as encoded_array instead of silently becoming 0 (#37); arrays past 256 elements no longer truncated; Makefile tracks header dependencies
+
+
 ## [0.12.0] - 2026-10-29
 
 ### Added
