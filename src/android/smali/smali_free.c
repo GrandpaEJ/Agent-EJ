@@ -63,6 +63,7 @@ static void free_method(smali_method_def_t *m) {
     free(m->local_types);
     free(m->local_sigs);
     free(m->local_regs);
+    free(m->dbg);
     for (uint32_t i = 0; i < m->annot_count; i++) smali_annot_free(&m->annots[i]);
     free(m->annots);
     for (uint32_t i = 0; i < m->param_name_count; i++) {
@@ -80,7 +81,10 @@ static void free_field(smali_field_def_t *f) {
     free(f->name);
     free(f->type);
     free(f->value_str);
-    free(f->array_vals);
+    if (f->init_array) {
+        smali_annot_elem_free(f->init_array);
+        free(f->init_array);
+    }
     for (uint32_t i = 0; i < f->annot_count; i++) smali_annot_free(&f->annots[i]);
     free(f->annots);
 }
@@ -89,6 +93,7 @@ static void free_class(smali_class_def_t *c) {
     free(c->descriptor);
     free(c->super_class);
     free(c->source_file);
+    free(c->src_path);
     for (uint32_t i = 0; i < c->interface_count; i++) free(c->interfaces[i]);
     free(c->interfaces);
     for (uint32_t i = 0; i < c->static_field_count; i++) free_field(&c->static_fields[i]);

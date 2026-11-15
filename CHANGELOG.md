@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [New Released]
 
+## [0.13.2] - 2026-11-15
+
+### Fixed
+- smali: register/format violations report file:line (#35); all diagnostics reported (cap 20) with recovery past broken methods, directives and files
+
+
+## [0.13.1] - 2026-11-15
+
+### Fixed
+- smali: debug info replays .line/.local/.end local/.restart local/.prologue/.epilogue in source order, byte-identical to smali.jar (#36); .param maps to the right parameter slot; .local generic signatures kept
+
+
+## [0.13.0] - 2026-11-15
+
+### Added
+- smali: pool validator rejects out-of-order/duplicate string_ids and unsorted or dangling type_ids before serialization (#38)
+
+
+## [0.12.1] - 2026-11-15
+
+### Fixed
+- smali: array static-field initializers encode as encoded_array instead of silently becoming 0 (#37); arrays past 256 elements no longer truncated; Makefile tracks header dependencies
+
+
 ## [0.12.0] - 2026-10-29
 
 ### Added

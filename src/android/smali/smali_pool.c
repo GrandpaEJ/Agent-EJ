@@ -126,6 +126,10 @@ static void pool_rebuild_hash(smali_pool_strings_t *p) {
     for (uint32_t i = 0; i < p->count; i++) pool_htable_insert(p, i);
 }
 
+int smali_utf16_cmp(const char *a, const char *b) {
+    return comp_str(&a, &b);
+}
+
 void smali_pool_sort_strings(smali_pool_strings_t *p) {
     /* qsort() must not be called with a NULL base even for a zero count. */
     if (p->count > 1) qsort(p->strings, p->count, sizeof(char *), comp_str);
@@ -525,6 +529,8 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
                     smali_pool_add(&ctx->strings, f->value_str);
                 else if (f->value_type == VALUE_TYPE_TYPE && f->value_str)
                     smali_pool_add(&ctx->strings, f->value_str);
+                else if (f->value_type == VALUE_TYPE_ARRAY && f->init_array)
+                    pool_add_annotation_elem(ctx, f->init_array);
                 else if (f->value_type == VALUE_TYPE_ENUM && f->value_str) {
                     /* The initializer names a field: it has to be in the field
                      * pool, otherwise the encoded value points at field 0. */

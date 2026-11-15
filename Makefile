@@ -7,6 +7,9 @@ LTO = -flto -ffunction-sections -fdata-sections
 
 CFLAGS = $(OPT) $(WARN) $(STD) $(INC) $(LTO)
 LDFLAGS = $(LTO)
+# Per-object header dependencies: a struct change in a header rebuilds every
+# object that includes it (stale layouts otherwise link and crash at runtime).
+DEPFLAGS = -MMD -MP
 
 SRC_DIRS = src src/core src/net src/tools src/formats src/formats/zip src/android src/android/smali src/android/adb src/android/axml src/android/dex src/android/apk src/android/arsc src/android/sigkill src/crypto
 VENDOR_DIR = vendor
@@ -29,13 +32,13 @@ $(TARGET): $(OBJS) $(CJSON_OBJS) $(LINENOISE_OBJS)
 
 $(OBJ_DIR)/%.o: src/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(OBJ_DIR)/%.o: $(VENDOR_DIR)/cJSON/%.c | $(OBJ_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(OBJ_DIR)/%.o: $(VENDOR_DIR)/linenoise/%.c | $(OBJ_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
@@ -56,5 +59,7 @@ release: $(TARGET)
 
 clean:
 	rm -rf $(OBJ_DIR) $(TARGET) agent-ej-nano agent-ej-pico
+
+-include $(OBJS:.o=.d) $(CJSON_OBJS:.o=.d) $(LINENOISE_OBJS:.o=.d)
 
 .PHONY: all clean nano pico

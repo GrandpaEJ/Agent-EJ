@@ -3,14 +3,45 @@
 #include "smali_optab.h"
 #include "smali_error.h"
 #include "smali_annot.h"
+#include "smali_params.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+/* Appends a debug event anchored before the next instruction. */
+static int dbg_push(smali_method_def_t *m, uint8_t kind, uint32_t reg, int32_t line, uint32_t local) {
+    if (m->dbg_count >= m->dbg_cap) {
+        uint32_t cap = m->dbg_cap ? m->dbg_cap * 2 : 16;
+        smali_dbg_event_t *n = realloc(m->dbg, cap * sizeof(*n));
+        if (!n) return smali_fail("out of memory recording debug info");
+        m->dbg = n;
+        m->dbg_cap = cap;
+    }
+    m->dbg[m->dbg_count++] = (smali_dbg_event_t){kind, m->insns_count, reg, line, local};
+    return 0;
+}
+
+/* ".end local vX" / ".restart local vX" (any trailing "# name:type" comment
+ * is baksmali's annotation and carries no data). */
+static int parse_local_scope(smali_method_def_t *m, char **p, uint8_t kind, uint32_t line) {
+    char *reg_tok = smali_next_token(p);
+    if (!reg_tok || (reg_tok[0] != 'v' && reg_tok[0] != 'p')) {
+        smali_fail_at(line, "%s expects a register in method %s%s",
+                      kind == SMALI_DBG_END_LOCAL ? ".end local" : ".restart local",
+                      m->name ? m->name : "?", m->signature ? m->signature : "");
+        free(reg_tok);
+        return -1;
+    }
+    int rc = dbg_push(m, kind, smali_parse_register(reg_tok), -1, 0);
+    free(reg_tok);
+    return rc;
+}
 
 int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **p, smali_line_t *file_lc) {
     (void)ctx;
     char *start = *p;
     int current_line = -1;  /* track current .line for next instruction */
+    uint32_t cur_param = 0; /* parameter the last .param named */
     /* Source line of the instruction being parsed. The body is counted from
      * its own start so that a rewind inside the body stays cheap; when the
      * body is done the file counter is moved to the end without rescanning. */
@@ -47,30 +78,46 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                 smali_line_jump(file_lc, *p, lc.line);
                 return 0;
             }
+            if (next && strcmp(next, "local") == 0) {
+                free(next); free(tok);
+                if (parse_local_scope(m, &start, SMALI_DBG_END_LOCAL, lc.line) != 0) return -1;
+                start = line_end;
+                continue;
+            }
             if (next) free(next);
         } else if (strcmp(tok, ".line") == 0) {
             char *line_tok = smali_next_token(&start);
             if (line_tok) {
                 current_line = atoi(line_tok);
                 free(line_tok);
+                if (dbg_push(m, SMALI_DBG_LINE, 0, current_line, 0) != 0) { free(tok); return -1; }
             }
             free(tok);
             continue;
         } else if (strcmp(tok, ".param") == 0) {
             char *reg_tok = smali_next_token(&start);
+            /* The name is optional: an unnamed parameter may still carry
+             * annotations ('.param p1    # Ljava/lang/String;'). */
             char *name_tok = smali_next_token(&start);
-            if (reg_tok && name_tok) {
-                /* ".param pN, ..." names the Nth register, not the Nth
-                 * named parameter: a leading parameter with no debug name
-                 * is simply skipped in the source. The debug_info table on
-                 * disk is positional (one uleb128p1 per "in" register, with
-                 * 0 = NO_INDEX for an unnamed one), so the slot this name
-                 * belongs in is (register number - first "in" register),
-                 * not the order .param directives happen to appear in. */
+            cur_param = UINT32_MAX;
+            if (reg_tok) {
+                /* The debug_info parameter table is positional per
+                 * parameter (not per register): pN skips "this" and a wide
+                 * parameter spans two registers. vN is the same register
+                 * counted from the bottom of the frame. */
                 uint32_t first_in = m->registers_count - m->ins_count;
-                char *digits = reg_tok + 1; /* skip 'p' */
-                uint32_t reg_num = (uint32_t)atoi(digits);
-                uint32_t idx = reg_num >= first_in ? reg_num - first_in : 0;
+                uint32_t reg_num = (uint32_t)atoi(reg_tok + 1);
+                uint32_t off = reg_tok[0] == 'p' ? reg_num : reg_num - first_in;
+                int pi = (reg_tok[0] == 'v' && reg_num < first_in) ? -1
+                       : smali_param_index(m->signature, (m->access_flags & 0x0008) != 0, off);
+                if (pi < 0) {
+                    smali_fail_at(lc.line, ".param %s is not a parameter of %s%s", reg_tok,
+                                  m->name ? m->name : "?", m->signature ? m->signature : "");
+                    free(reg_tok); free(name_tok); free(tok);
+                    return -1;
+                }
+                uint32_t idx = (uint32_t)pi;
+                cur_param = idx;
                 if (idx >= m->param_name_count) {
                     uint32_t old_count = m->param_name_count;
                     uint32_t new_count = idx + 1;
@@ -84,14 +131,13 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                     }
                     m->param_name_count = new_count;
                 }
-                free(m->param_names[idx]);
-                m->param_names[idx] = strdup(name_tok);
-                free(name_tok);
-                free(reg_tok);
-            } else {
-                if (reg_tok) free(reg_tok);
-                if (name_tok) free(name_tok);
+                if (name_tok) {
+                    free(m->param_names[idx]);
+                    m->param_names[idx] = strdup(name_tok);
+                }
             }
+            free(name_tok);
+            free(reg_tok);
             free(tok);
             
             /* Parse optional param body for annotations */
@@ -110,8 +156,8 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                     if (sub) free(sub);
                     start = save_p; free(inner_tok); break;
                 }
-                if (strcmp(inner_tok, ".annotation") == 0 && m->param_name_count > 0) {
-                    uint32_t pidx = m->param_name_count - 1;
+                if (strcmp(inner_tok, ".annotation") == 0 && cur_param < m->param_name_count) {
+                    uint32_t pidx = cur_param;
                     if (m->param_annot_counts[pidx] < MAX_ANNOTS) {
                         if (!m->param_annots[pidx]) {
                             m->param_annots[pidx] = calloc(MAX_ANNOTS, sizeof(smali_annotation_t));
@@ -137,10 +183,12 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
         } else if (strcmp(tok, ".prologue") == 0) {
             m->prologue_set = 1;
             free(tok);
+            if (dbg_push(m, SMALI_DBG_PROLOGUE, 0, -1, 0) != 0) return -1;
             continue;
         } else if (strcmp(tok, ".epilogue") == 0) {
             m->epilogue_set = 1;
             free(tok);
+            if (dbg_push(m, SMALI_DBG_EPILOGUE, 0, -1, 0) != 0) return -1;
             continue;
         } else if (strcmp(tok, ".local") == 0) {
             char *reg_tok = smali_next_token(&start);
@@ -165,17 +213,21 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                 m->local_regs[m->local_count] = smali_parse_register(reg_tok);
                 m->local_names[m->local_count] = strdup(name_tok);
                 m->local_types[m->local_count] = strdup(type_tok);
-                /* A signature is only present when it follows an '='. */
-                char *sig_tok = smali_next_token(&start);
-                if (sig_tok && strcmp(sig_tok, "=") == 0) {
-                    free(sig_tok);
-                    sig_tok = smali_next_token(&start);
-                } else {
-                    free(sig_tok);
-                    sig_tok = NULL;
-                }
+                /* An optional generic signature follows as a quoted string
+                 * (baksmali: '..., "sig"'; older form: '= "sig"'). Peek
+                 * only on this line so the next directive isn't consumed. */
+                char *sig_tok = NULL;
+                char *q = start;
+                while (*q == ' ' || *q == '\t' || *q == ',') q++;
+                if (*q == '=') { q++; while (*q == ' ' || *q == '\t') q++; }
+                if (*q == '"' && q < line_end) { start = q; sig_tok = smali_next_token(&start); }
                 m->local_sigs[m->local_count] = sig_tok ? strdup(sig_tok) : NULL;
                 if (sig_tok) free(sig_tok);
+                if (dbg_push(m, SMALI_DBG_LOCAL, m->local_regs[m->local_count], -1, m->local_count) != 0) {
+                    m->local_count++;
+                    free(name_tok); free(type_tok); free(reg_tok); free(tok);
+                    return -1;
+                }
                 m->local_count++;
                 free(name_tok);
                 free(type_tok);
@@ -520,10 +572,18 @@ int smali_parse_method_body(smali_ctx_def_t *ctx, smali_method_def_t *m, char **
                     if (vA_tok) free(vA_tok);
                 }
             } else if (tok[0] == '.') {
-                /* A directive the parser does not know. ".restart local" is
-                 * emitted by baksmali and carries no data, so it is skipped;
-                 * anything else is a typo worth reporting. */
-                if (strcmp(tok, ".restart") != 0) {
+                /* ".restart local vX" re-opens a scope closed by .end local. */
+                if (strcmp(tok, ".restart") == 0) {
+                    char *kw = smali_next_token(&start);
+                    int is_local = kw && strcmp(kw, "local") == 0;
+                    free(kw);
+                    if (!is_local || parse_local_scope(m, &start, SMALI_DBG_RESTART_LOCAL, lc.line) != 0) {
+                        if (!is_local) smali_fail_at(lc.line, "expected '.restart local vX' in method %s%s",
+                                                     m->name ? m->name : "?", m->signature ? m->signature : "");
+                        free(tok);
+                        return -1;
+                    }
+                } else {
                     smali_fail_at(lc.line, "unknown directive '%s' in method %s%s",
                                   tok, m->name ? m->name : "?",
                                   m->signature ? m->signature : "");

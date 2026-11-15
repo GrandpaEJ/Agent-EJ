@@ -124,6 +124,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
     char *text_copy = strdup(text);
     char *p = text_copy;
     smali_class_def_t *curr = NULL;
+    int failed = 0;  /* a recovered error: keep parsing, but fail the file */
     /* Source line of the construct being parsed (1-based). */
     smali_line_t lc;
     smali_line_init(&lc, text_copy, 1);
@@ -160,6 +161,9 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
             }
             curr = &ctx->classes[ctx->class_count++];
             memset(curr, 0, sizeof(smali_class_def_t));
+            /* Encode-time diagnostics run after every file is parsed, so
+             * each class remembers the file it came from. */
+            curr->src_path = strdup(smali_source_name());
             
             char *next = smali_next_token(&p);
             while (next) {
@@ -238,6 +242,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                     int64_t val_int = 0;
                     double val_double = 0.0;
                     char *val_str = NULL;
+                    smali_annotation_elem_t *init_array = NULL;
                     char *eq_tok = smali_next_token(&p);
                     if (eq_tok && strcmp(eq_tok, "=") == 0) {
                         free(eq_tok);
@@ -257,6 +262,24 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                             if (*q == '\'') q++;
                             p = q;
                             val_type = VALUE_TYPE_CHAR; val_int = cv; has_init = 1;
+                        } else if (*p == '{') {
+                            /* Array initializer: previously read as the token
+                             * "{" and strtoll'd to 0, silently corrupting it. */
+                            int errs_before = smali_error_count();
+                            init_array = calloc(1, sizeof(*init_array));
+                            if (!init_array || smali_parse_annot_value(&p, init_array, cur_line) != 0) {
+                                if (init_array) { smali_annot_elem_free(init_array); free(init_array); }
+                                if (smali_error_count() == errs_before) smali_fail_at(cur_line, "malformed array initializer for field %s", name);
+                                free(name); free(type); free(tok); free(text_copy);
+                                return -1;
+                            }
+                            if (type && type[0] != '[') {
+                                smali_fail_at(cur_line, "array initializer on non-array field %s:%s", name, type);
+                                smali_annot_elem_free(init_array); free(init_array);
+                                free(name); free(type); free(tok); free(text_copy);
+                                return -1;
+                            }
+                            val_type = VALUE_TYPE_ARRAY; has_init = 1;
                         } else val_tok = smali_next_token(&p);
                         if (val_tok) {
                             if (strcmp(val_tok, "null") == 0) {
@@ -318,8 +341,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                     field->value_int = val_int;
                     field->value_double = val_double;
                     field->value_str = val_str;
-                    field->array_vals = NULL;
-                    field->array_count = 0;
+                    field->init_array = init_array;
                     field->annot_count = 0;
                     
                     /* Parse optional field body for annotations */
@@ -483,8 +505,18 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                     method->ins_count = calculate_ins_count(sig, method->access_flags);
                     
                     if (smali_parse_method_body(ctx, method, &p, &lc) != 0) {
-                        free(name_sig); free(tok); free(text_copy);
-                        return -1;
+                        /* Recover: report the defect, skip to the end of
+                         * this method and keep looking for more errors. The
+                         * file still fails, so no DEX is written. */
+                        failed = 1;
+                        char *end = strstr(p, ".end method");
+                        if (!end) {
+                            free(name_sig); free(tok); free(text_copy);
+                            return -1;
+                        }
+                        p = smali_eol(end);
+                        if (!p) p = end + strlen(end);
+                        smali_line_sync(&lc, p);
                     }
                 }
                 free(name_sig);
@@ -506,13 +538,15 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
         int is_method = (strcmp(tok, ".method") == 0 || strcmp(tok, ".field") == 0);
         if (!is_method) {
             smali_fail_at(cur_line, "unknown directive '%s' at class level", tok);
-            free(tok); free(text_copy);
-            return -1;
+            free(tok);
+            failed = 1;
+            p = line_end;
+            continue;
         }
         free(tok);
     }
     free(text_copy);
-    return 0;
+    return failed ? -1 : 0;
 }
 
 int parse_smali_file_path(smali_ctx_def_t *ctx, const char *filepath) {

@@ -308,6 +308,168 @@ SMALI
     return v0
 .end method
 SMALI
+
+    # Class 7: array static-field initializers (issue #37) — scalar, string,
+    # type, nested, empty and wide arrays all go through encoded_array.
+    cat > "$d/com/test/Arrays.smali" << 'SMALI'
+.class public Lcom/test/Arrays;
+.super Ljava/lang/Object;
+
+.field public static final EMPTY:[J = {}
+.field public static final INTS:[I = {
+    0x1,
+    0x2,
+    -0x3,
+    0x7fffffff
+}
+.field public static final LONGS:[J = {
+    0x1L,
+    -0x8000000000000000L
+}
+.field public static final NESTED:[[I = {
+    {
+        0x1
+    },
+    {}
+}
+.field public static final NAMES:[Ljava/lang/String; = {
+    "alpha",
+    "\u00e9\u4e2d"
+}
+.field public static final TYPES:[Ljava/lang/Class; = {
+    Ljava/lang/String;,
+    [I
+}
+.field public static plain:I = 0x2a
+SMALI
+
+    # Class 8: debug info — .param slots (this, wide params, unnamed),
+    # local scopes (.end/.restart local, generic signature), prologue,
+    # epilogue, a long ADVANCE_PC gap and line 0 (issue #36)
+    cat > "$d/com/test/Locals.smali" << 'SMALI'
+.class public Lcom/test/Locals;
+.super Ljava/lang/Object;
+.source "Locals.java"
+
+
+# direct methods
+.method public static localsOnly()V
+    .registers 1
+
+    const/4 v0, 0x0
+
+    .local v0, "a":I
+    return-void
+.end method
+
+.method public static scopes(ILjava/lang/String;)I
+    .registers 5
+    .param p0, "n"    # I
+    .param p1, "s"    # Ljava/lang/String;
+
+    .prologue
+    .line 10
+    const/4 v0, 0x0
+
+    .local v0, "total":I
+    const/4 v1, 0x1
+
+    .local v1, "i":I
+    :goto_2
+    if-ge v1, p0, :cond_8
+
+    .line 11
+    add-int/2addr v0, v1
+
+    .line 10
+    add-int/lit8 v1, v1, 0x1
+
+    goto :goto_2
+
+    .line 40
+    .end local v1    # "i":I
+    :cond_8
+    const-string v2, "x"
+
+    .local v2, "tmp":Ljava/lang/String;
+    .end local v2    # "tmp":Ljava/lang/String;
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    nop
+
+    .line 41
+    .restart local v2    # "tmp":Ljava/lang/String;
+    invoke-virtual {v2}, Ljava/lang/String;->length()I
+
+    move-result p0
+
+    .prologue
+    .line 42
+    .local p0, "list":Ljava/util/List;, "Ljava/util/List<Ljava/lang/String;>;"
+    .local p1, "s2":Ljava/lang/String;
+    return v0
+.end method
+
+.method public static zero()V
+    .registers 1
+
+    .line 0
+    return-void
+.end method
+
+
+# virtual methods
+.method public linesOnly(IJ)V
+    .registers 4
+
+    .line 3
+    return-void
+.end method
+
+.method public wide(JLjava/lang/String;D)V
+    .registers 7
+    .param p3, "s"    # Ljava/lang/String;
+    .param p4    # D
+        .annotation runtime Ljava/lang/Deprecated;
+        .end annotation
+    .end param
+
+    .line 7
+    return-void
+.end method
+SMALI
 }
 
 # ---------- run one roundtrip ----------
@@ -467,6 +629,28 @@ nclasses="$(find "$FIXTURE" -name '*.smali' | wc -l)"
 echo "  fixture: $nclasses classes"
 
 roundtrip inline "$FIXTURE"
+
+# Debug info must decode the same as smali.jar's for the same source: the
+# assembled streams are compared through baksmali, which prints every
+# .line/.local/.end local/.restart local/.param/.prologue/.epilogue.
+if [ -n "$SMALI" ]; then
+    DBG="$W/dbg"; mkdir -p "$DBG/src/com/test"
+    cp "$FIXTURE/com/test/Locals.smali" "$DBG/src/com/test/"
+    if "$AGENTX" tool smali_assemble src_dir="$DBG/src" out_dex="$DBG/ours.dex" >/dev/null 2>&1 \
+        && "$SMALI" a "$DBG/src" -o "$DBG/ref.dex" >/dev/null 2>&1 \
+        && "$BAKSMALI" d "$DBG/ours.dex" -o "$DBG/o" >/dev/null 2>&1 \
+        && "$BAKSMALI" d "$DBG/ref.dex" -o "$DBG/r" >/dev/null 2>&1; then
+        if diff -ru "$DBG/r" "$DBG/o" >"$DBG/diff" 2>&1; then
+            ok "debug info: Locals decodes identically to smali.jar"
+        else
+            fail "debug info differs from smali.jar:"; head -30 "$DBG/diff"
+        fi
+    else
+        fail "debug info: assembling Locals failed"
+    fi
+else
+    skip "debug info vs smali.jar (smali not found)"
+fi
 
 # 2. External DEX (optional)
 if [ -n "${ROUNDTRIP_DEX:-}" ]; then
