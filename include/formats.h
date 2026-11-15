@@ -139,6 +139,14 @@ int apk_sign_v2_v3(const char *in_apk, const char *out_apk, rsa_key *key, int do
 int apk_replace_entries(const char *in_apk, const char *out_apk, const char *const *names,
                         const char *const *files, int n);
 int apk_sign_pipeline(const char *in_zip, const char *out_apk, const char *key_path, const char *cert_path);
+/* Signature schemes an APK carries: APK_SIG_V1 (a META-INF .SF file) and the IDs
+ * found in its APK Signing Block. 0 when unsigned, -1 when unreadable. */
+#define APK_SIG_V1    1
+#define APK_SIG_V2    2
+#define APK_SIG_V3    4
+#define APK_SIG_V31   8
+#define APK_SIG_STAMP 16
+int apk_sig_schemes(const char *path);
 char *apk_analyze(const char *path);
 void apk_free(char *result);
 
