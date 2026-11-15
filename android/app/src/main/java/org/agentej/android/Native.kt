@@ -28,7 +28,12 @@ object Native {
     external fun mkdirs(path: String): Int
     external fun deletePath(path: String): Int
     external fun renamePath(from: String, to: String): Int
+    /** 0 ok, -1 io error, -2 target inside source, -3 target exists. Streams; folders recurse. */
     external fun copyPath(from: String, to: String): Int
+    /** rename(2), falling back to copy + delete across filesystems. Same codes as copyPath. */
+    external fun movePath(from: String, to: String): Int
+    /** Case-insensitive name search under root; lines are "rel/path\tisDir\tsize\tmtime". */
+    external fun findFiles(root: String, query: String, limit: Int): Array<String>?
 
     // archives
     external fun zipEntries(archive: String): Array<String>?

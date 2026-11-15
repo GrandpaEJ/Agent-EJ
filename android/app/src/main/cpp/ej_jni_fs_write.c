@@ -39,7 +39,7 @@ Java_org_agentej_android_Native_mkdirs(JNIEnv *env, jobject thiz, jstring jpath)
     return rc;
 }
 
-static int rm_rf(const char *path) {
+int ej_rm_rf(const char *path) {
     struct stat st;
     if (lstat(path, &st) != 0) return -1;
     if (!S_ISDIR(st.st_mode)) return remove(path);
@@ -51,7 +51,7 @@ static int rm_rf(const char *path) {
         if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
         char full[1400];
         snprintf(full, sizeof(full), "%s/%s", path, ent->d_name);
-        if (rm_rf(full) != 0) rc = -1;
+        if (ej_rm_rf(full) != 0) rc = -1;
     }
     closedir(d);
     if (rmdir(path) != 0) rc = -1;
@@ -63,7 +63,7 @@ Java_org_agentej_android_Native_deletePath(JNIEnv *env, jobject thiz, jstring jp
     (void)thiz;
     const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
     if (!path) return -1;
-    int rc = rm_rf(path);
+    int rc = ej_rm_rf(path);
     (*env)->ReleaseStringUTFChars(env, jpath, path);
     return rc;
 }
@@ -75,30 +75,6 @@ Java_org_agentej_android_Native_renamePath(JNIEnv *env, jobject thiz, jstring jf
     const char *to = (*env)->GetStringUTFChars(env, jto, NULL);
     int rc = -1;
     if (from && to) rc = rename(from, to);
-    if (from) (*env)->ReleaseStringUTFChars(env, jfrom, from);
-    if (to) (*env)->ReleaseStringUTFChars(env, jto, to);
-    return rc;
-}
-
-static int copy_file(const char *from, const char *to) {
-    size_t len = 0;
-    uint8_t *data = ej_read_file(from, &len, 0);
-    if (!data) return -1;
-    int rc = ej_write_file(to, data, len);
-    free(data);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL
-Java_org_agentej_android_Native_copyPath(JNIEnv *env, jobject thiz, jstring jfrom, jstring jto) {
-    (void)thiz;
-    const char *from = (*env)->GetStringUTFChars(env, jfrom, NULL);
-    const char *to = (*env)->GetStringUTFChars(env, jto, NULL);
-    int rc = -1;
-    if (from && to) {
-        struct stat st;
-        if (stat(from, &st) == 0) rc = S_ISDIR(st.st_mode) ? -2 : copy_file(from, to);
-    }
     if (from) (*env)->ReleaseStringUTFChars(env, jfrom, from);
     if (to) (*env)->ReleaseStringUTFChars(env, jto, to);
     return rc;

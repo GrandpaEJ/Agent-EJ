@@ -29,6 +29,8 @@ char *ej_dup(const char *s);
 uint8_t *ej_read_file(const char *path, size_t *out_len, size_t max);
 uint8_t *ej_read_zip_entry(const char *archive, const char *name, size_t *out_len);
 int ej_write_file(const char *path, const void *data, size_t len);
+/* Recursive delete; 0 on full success. */
+int ej_rm_rf(const char *path);
 const char *ej_basename(const char *path);
 const char *ej_ext(const char *name);
 int ej_ext_is(const char *name, const char *ext);
