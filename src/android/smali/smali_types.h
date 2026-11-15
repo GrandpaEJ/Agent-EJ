@@ -110,6 +110,27 @@ typedef struct {
     char *handler_label;
 } smali_catch_t;
 
+/* Debug directives in source order, each anchored before instruction [insn]
+ * (== insns_count when it follows the last one). The writer replays them in
+ * this order, which is what keeps .local/.end local/.restart local scopes,
+ * .prologue and .epilogue at their real addresses. */
+enum {
+    SMALI_DBG_LINE = 1,      /* line */
+    SMALI_DBG_LOCAL,         /* reg, local (index into local_* arrays) */
+    SMALI_DBG_END_LOCAL,     /* reg */
+    SMALI_DBG_RESTART_LOCAL, /* reg */
+    SMALI_DBG_PROLOGUE,
+    SMALI_DBG_EPILOGUE
+};
+
+typedef struct {
+    uint8_t kind;
+    uint32_t insn;
+    uint32_t reg;    /* raw parsed register: p-registers carry 0x80000000 */
+    int32_t line;
+    uint32_t local;
+} smali_dbg_event_t;
+
 typedef struct {
     uint32_t access_flags;
     char *name;
@@ -135,6 +156,9 @@ typedef struct {
     char **local_sigs;
     uint32_t *local_regs;
     uint32_t local_count;
+    smali_dbg_event_t *dbg;
+    uint32_t dbg_count;
+    uint32_t dbg_cap;
     smali_annotation_t *annots;
     uint32_t annot_count;
     uint32_t annot_cap;

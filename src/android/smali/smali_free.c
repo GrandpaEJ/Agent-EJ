@@ -63,6 +63,7 @@ static void free_method(smali_method_def_t *m) {
     free(m->local_types);
     free(m->local_sigs);
     free(m->local_regs);
+    free(m->dbg);
     for (uint32_t i = 0; i < m->annot_count; i++) smali_annot_free(&m->annots[i]);
     free(m->annots);
     for (uint32_t i = 0; i < m->param_name_count; i++) {

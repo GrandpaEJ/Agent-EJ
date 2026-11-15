@@ -62,6 +62,16 @@ expect_fail array_on_scalar \
   "$(mk array_on_scalar '.field public static n:I = {0x1, 0x2}')" \
   "array initializer on non-array field n:I"
 
+# p0 of an instance method is "this", which has no debug name slot
+expect_fail param_this \
+  "$(mk param_this '.method public m(I)V' '    .registers 2' '    .param p0, "x"' '    return-void' '.end method')" \
+  ".param p0 is not a parameter of m(I)V"
+
+# the second register of a wide parameter is not a parameter of its own
+expect_fail param_wide_half \
+  "$(mk param_wide_half '.method public static m(J)V' '    .registers 2' '    .param p1, "x"' '    return-void' '.end method')" \
+  ".param p1 is not a parameter of m(J)V"
+
 # the diagnostic must carry the file name and the line of the defect
 expect_fail line_number \
   "$(mk line_number '.method public static m()V' '    .registers 1' '    return-void' '    frobnicate' '.end method')" \
