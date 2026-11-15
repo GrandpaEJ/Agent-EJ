@@ -7,6 +7,7 @@
 typedef struct zip_archive zip_archive;
 typedef struct axml_ctx axml_ctx;
 typedef struct dex_ctx dex_ctx;
+#include "dex_find.h"
 typedef struct arsc_ctx arsc_ctx;
 
 // ZIP
@@ -61,6 +62,12 @@ dex_ctx *dex_parse(const uint8_t *data, size_t size);
 char *dex_dump(dex_ctx *ctx);
 char *dex_to_smali_class(dex_ctx *ctx, uint32_t class_idx);
 void dex_free(dex_ctx *ctx);
+
+/* Dex editor search, see dex_find.h. scope "com/a" limits to that package
+ * (and sub-packages unless DEX_FIND_SHALLOW). Returns -1 on a bad query
+ * (unparsable integer, invalid regex). */
+int dex_find(dex_ctx *ctx, int kind, const char *query, int flags, const char *scope,
+             dex_find_fn fn, void *user);
 
 /* Deobfuscation — repair pass. Each takes a (possibly tampered) format image
  * and returns a malloc'd, cleaned image of *out_size that standard tools can
