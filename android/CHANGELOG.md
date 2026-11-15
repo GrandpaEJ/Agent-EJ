@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [New Released]
 
+## [0.7.0] - 2026-11-15
+
+### Added
+- EJ workspace folder (`/sdcard/EJ`, drawer entry): decoded projects go to `EJ/projects`, output for read-only sources to `EJ/output`
+- Dex editor: edit a class and compile with the hammer; every touched dex is rebuilt and written into a signed `<name>_edited.apk` (or `_edited.dex`), with a prompt on leaving with uncompiled changes
+- Dex editor Strings tab: the string pool of every open dex with a filter; tap a string to copy it, find its uses or replace it in every class that uses it
+- Dex editor History tab and long-press menu on classes and packages: copy name/descriptor, add a class, import a `.smali`, rename (references in the open dex follow) and delete
+- APK info dialog on tapping an APK, laid out like MT: package, version, size, signature schemes, protection, SDKs, installed copy, data directories, install dates, UID; FUNCTION / VIEW / INSTALL
+- Signature information: scheme, status, algorithm, public key, validity, owner, HASH/CRC32/MD5/SHA1/SHA256 with format switches, certificate bytes in the hex viewer, paste-and-verify a hash
+
+### Fixed
+- The drawer shows the real core version (read from CHANGELOG.md at build time)
+
+
 ## [0.6.0] - 2026-11-15
 
 ### Added
