@@ -62,6 +62,8 @@ dex_ctx *dex_parse(const uint8_t *data, size_t size);
 char *dex_dump(dex_ctx *ctx);
 char *dex_to_smali_class(dex_ctx *ctx, uint32_t class_idx);
 void dex_free(dex_ctx *ctx);
+/* Number of class_defs in the dex. */
+uint32_t dex_class_count(dex_ctx *ctx);
 
 /* Dex editor search, see dex_find.h. scope "com/a" limits to that package
  * (and sub-packages unless DEX_FIND_SHALLOW). Returns -1 on a bad query
@@ -99,6 +101,15 @@ int deobf_heuristic_apply(const char *smali_root, char *report, size_t cap);
 int smali_assemble(const char *src_dir, const char *out_dex);
 /* Like smali_assemble, but reports how many DEX files were written (classes.dex, classes2.dex, ...). */
 int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out);
+/* Dex editor save: rebuild one dex with classes replaced by edited smali.
+ * Every class of `dex` is rendered and re-assembled, except the class_def
+ * indices in skip[], whose edited text is texts[] (n_texts entries; a text
+ * whose class is new to the dex adds it). Writes out_dex. Returns 0, -1 on a
+ * smali error (reason in smali_last_error()), -2 when the result no longer
+ * fits one dex. */
+int smali_patch_dex(const uint8_t *dex, size_t len, const uint32_t *skip, int n_skip,
+                    const char *const *texts, int n_texts, const char *out_dex);
+const char *smali_last_error(void);
 
 // Smali flow graph
 #include "smali_flow.h"
@@ -113,6 +124,10 @@ int apk_sign_v2_v3(const char *in_apk, const char *out_apk, rsa_key *key, int do
 /* Consumes the written ZIP payload `in_zip` (removing it) and produces a
  * signed, aligned APK at `out_apk`: v1 -> zipalign -> v2/v3, or align-only
  * when key_path is NULL. Returns 0, or APK_SIGN_ERR_CERT_MISMATCH / -1. */
+/* Copies in_apk to out_apk (unsigned), with entries names[i] replaced by
+ * files[i] (added when missing). Old signature files are dropped. */
+int apk_replace_entries(const char *in_apk, const char *out_apk, const char *const *names,
+                        const char *const *files, int n);
 int apk_sign_pipeline(const char *in_zip, const char *out_apk, const char *key_path, const char *cert_path);
 char *apk_analyze(const char *path);
 void apk_free(char *result);

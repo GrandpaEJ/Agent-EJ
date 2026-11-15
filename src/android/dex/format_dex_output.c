@@ -82,3 +82,7 @@ char *dex_dump(dex_ctx *ctx) {
 
     return buf;
 }
+
+uint32_t dex_class_count(dex_ctx *ctx) {
+    return ctx ? ctx->class_count : 0;
+}
