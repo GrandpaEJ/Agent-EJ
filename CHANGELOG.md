@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [New Released]
 
+## [0.15.0] - 2026-11-15
+
+### Added
+- `smali_patch_dex`: rebuild one dex with edited, added and deleted classes (the untouched classes round-trip dex→smali→dex one at a time); `apk_replace_entries` swaps the rebuilt dex back into a copy of the APK for signing
+- `dex_string_count` / `dex_string_at`: string pool accessors
+- `smali_rename`: class or whole-package descriptor renames over smali text (types, member refs, generic signatures), applied by `smali_patch_dex` to every class
+- `apk_sig_schemes`: V1 / V2 / V3 / V3.1 / source-stamp detection from the APK Signing Block; the APK info summary uses it instead of a magic-string search
+
+
 ## [0.14.0] - 2026-11-15
 
 ### Added
