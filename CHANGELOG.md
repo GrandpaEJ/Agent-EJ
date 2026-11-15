@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [New Released]
 
+## [0.13.0] - 2026-11-15
+
+### Added
+- smali: pool validator rejects out-of-order/duplicate string_ids and unsorted or dangling type_ids before serialization (#38)
+
+
 ## [0.12.1] - 2026-11-15
 
 ### Fixed
