@@ -9,6 +9,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 typedef struct {
@@ -146,6 +147,23 @@ Java_org_agentej_android_Native_statPath(JNIEnv *env, jobject thiz, jstring jpat
 }
 
 JNIEXPORT jstring JNICALL
+Java_org_agentej_android_Native_diskStats(JNIEnv *env, jobject thiz, jstring jpath) {
+    (void)thiz;
+    const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
+    char buf[64] = "0\t0";
+    if (path) {
+        struct statvfs vfs;
+        if (statvfs(path, &vfs) == 0) {
+            unsigned long long total = (unsigned long long)vfs.f_blocks * vfs.f_frsize;
+            unsigned long long avail = (unsigned long long)vfs.f_bavail * vfs.f_frsize;
+            snprintf(buf, sizeof(buf), "%llu\t%llu", total - avail, total);
+        }
+        (*env)->ReleaseStringUTFChars(env, jpath, path);
+    }
+    return ej_jstr(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
 Java_org_agentej_android_Native_readText(JNIEnv *env, jobject thiz, jstring jpath, jint jmax) {
     (void)thiz;
     const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
@@ -159,99 +177,4 @@ Java_org_agentej_android_Native_readText(JNIEnv *env, jobject thiz, jstring jpat
         (*env)->ReleaseStringUTFChars(env, jpath, path);
     }
     return out;
-}
-
-JNIEXPORT jint JNICALL
-Java_org_agentej_android_Native_writeText(JNIEnv *env, jobject thiz, jstring jpath, jstring jtext) {
-    (void)thiz;
-    const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
-    const char *text = (*env)->GetStringUTFChars(env, jtext, NULL);
-    int rc = -1;
-    if (path && text) rc = ej_write_file(path, text, strlen(text));
-    if (path) (*env)->ReleaseStringUTFChars(env, jpath, path);
-    if (text) (*env)->ReleaseStringUTFChars(env, jtext, text);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL
-Java_org_agentej_android_Native_mkdirs(JNIEnv *env, jobject thiz, jstring jpath) {
-    (void)thiz;
-    const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
-    if (!path) return -1;
-    char tmp[1200];
-    snprintf(tmp, sizeof(tmp), "%s", path);
-    for (char *p = tmp + 1; *p; p++) {
-        if (*p != '/') continue;
-        *p = '\0';
-        mkdir(tmp, 0755);
-        *p = '/';
-    }
-    int rc = mkdir(tmp, 0755);
-    (*env)->ReleaseStringUTFChars(env, jpath, path);
-    return rc;
-}
-
-static int rm_rf(const char *path) {
-    struct stat st;
-    if (lstat(path, &st) != 0) return -1;
-    if (!S_ISDIR(st.st_mode)) return remove(path);
-    DIR *d = opendir(path);
-    if (!d) return -1;
-    struct dirent *ent;
-    int rc = 0;
-    while ((ent = readdir(d)) != NULL) {
-        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
-        char full[1400];
-        snprintf(full, sizeof(full), "%s/%s", path, ent->d_name);
-        if (rm_rf(full) != 0) rc = -1;
-    }
-    closedir(d);
-    if (rmdir(path) != 0) rc = -1;
-    return rc;
-}
-
-JNIEXPORT jint JNICALL
-Java_org_agentej_android_Native_deletePath(JNIEnv *env, jobject thiz, jstring jpath) {
-    (void)thiz;
-    const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
-    if (!path) return -1;
-    int rc = rm_rf(path);
-    (*env)->ReleaseStringUTFChars(env, jpath, path);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL
-Java_org_agentej_android_Native_renamePath(JNIEnv *env, jobject thiz, jstring jfrom, jstring jto) {
-    (void)thiz;
-    const char *from = (*env)->GetStringUTFChars(env, jfrom, NULL);
-    const char *to = (*env)->GetStringUTFChars(env, jto, NULL);
-    int rc = -1;
-    if (from && to) rc = rename(from, to);
-    if (from) (*env)->ReleaseStringUTFChars(env, jfrom, from);
-    if (to) (*env)->ReleaseStringUTFChars(env, jto, to);
-    return rc;
-}
-
-static int copy_file(const char *from, const char *to) {
-    size_t len = 0;
-    uint8_t *data = ej_read_file(from, &len, 0);
-    if (!data) return -1;
-    int rc = ej_write_file(to, data, len);
-    free(data);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL
-Java_org_agentej_android_Native_copyPath(JNIEnv *env, jobject thiz, jstring jfrom, jstring jto) {
-    (void)thiz;
-    const char *from = (*env)->GetStringUTFChars(env, jfrom, NULL);
-    const char *to = (*env)->GetStringUTFChars(env, jto, NULL);
-    int rc = -1;
-    if (from && to) {
-        struct stat st;
-        if (stat(from, &st) == 0) rc = S_ISDIR(st.st_mode) ? -2 : copy_file(from, to);
-    }
-    if (from) (*env)->ReleaseStringUTFChars(env, jfrom, from);
-    if (to) (*env)->ReleaseStringUTFChars(env, jto, to);
-    return rc;
 }
