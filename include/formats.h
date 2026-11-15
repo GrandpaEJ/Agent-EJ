@@ -64,6 +64,9 @@ char *dex_to_smali_class(dex_ctx *ctx, uint32_t class_idx);
 void dex_free(dex_ctx *ctx);
 /* Number of class_defs in the dex. */
 uint32_t dex_class_count(dex_ctx *ctx);
+/* String pool: count and entry idx (decoded, "" when missing). */
+uint32_t dex_string_count(dex_ctx *ctx);
+const char *dex_string_at(dex_ctx *ctx, uint32_t idx);
 
 /* Dex editor search, see dex_find.h. scope "com/a" limits to that package
  * (and sub-packages unless DEX_FIND_SHALLOW). Returns -1 on a bad query
