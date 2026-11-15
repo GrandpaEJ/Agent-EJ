@@ -36,6 +36,14 @@ file(GLOB EJ_JNI_SRC ${CMAKE_CURRENT_SOURCE_DIR}/*.c)
 
 add_library(ejcore SHARED ${EJ_CORE_SRC} ${EJ_JNI_SRC})
 
+# Core version = the newest "## [x.y.z]" in CHANGELOG.md, which version-bump.sh
+# writes; re-configure when the changelog changes so a bump shows up.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${EJ_ROOT}/CHANGELOG.md)
+file(STRINGS ${EJ_ROOT}/CHANGELOG.md EJ_VER_LINES REGEX "^## \\[[0-9]+\\.[0-9]+\\.[0-9]+\\]")
+list(GET EJ_VER_LINES 0 EJ_VER_LINE)
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" EJ_CORE_VERSION "${EJ_VER_LINE}")
+target_compile_definitions(ejcore PRIVATE EJ_CORE_VERSION="${EJ_CORE_VERSION}")
+
 target_include_directories(ejcore PRIVATE
     ${EJ_ROOT}/include
     ${EJ_ROOT}/src/android/smali
