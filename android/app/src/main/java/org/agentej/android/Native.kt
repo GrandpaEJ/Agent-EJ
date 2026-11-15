@@ -39,6 +39,7 @@ object Native {
     external fun zipEntries(archive: String): Array<String>?
     external fun readEntry(archive: String, name: String): ByteArray?
     external fun extractAll(archive: String, outDir: String): Int
+    external fun extractEntry(archive: String, name: String, outPath: String): Int
     external fun packDir(dir: String, output: String, sign: Boolean): Int
     external fun zipalign(input: String, output: String, align: Int): Int
 
@@ -49,6 +50,7 @@ object Native {
     external fun arscPatch(archive: String, index: Int, value: String): String
     external fun arscDumpToml(archive: String, output: String): String
     external fun repairFile(input: String, output: String): String
+    external fun axmlRepair(input: String, output: String): String
 
     // dex / smali
     external fun dexClasses(archive: String, entry: String): Array<String>?
@@ -56,9 +58,18 @@ object Native {
     external fun dexDump(archive: String, entry: String): String
     external fun smaliAssemble(srcDir: String, outDex: String): String
     external fun dexRepair(input: String, output: String): String
+    /** Whole DEX (plain file, or [entry] inside [archive]) -> one .smali per class under [outDir]. */
+    external fun dexToSmaliDir(archive: String, entry: String?, outDir: String): String
+    external fun readBytes(path: String, offset: Long, max: Int): ByteArray?
 
     // apk
     external fun apkAnalyze(path: String): String
     external fun apkInfo(path: String): Array<String>?
     external fun signApk(input: String, output: String): String
+    external fun apkDecode(apk: String, outDir: String): String
+    external fun apkBuild(srcDir: String, outApk: String): String
+    external fun apkMerge(input: String, outApk: String): String
+    external fun apkRepair(input: String, outApk: String): String
+    external fun deobfRename(decodedDir: String): String
+    external fun sigKill(input: String, outApk: String): String
 }

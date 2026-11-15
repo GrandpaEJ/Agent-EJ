@@ -68,6 +68,7 @@ fun FileRow(
     cutPending: Boolean,
     thumb: ThumbSpec?,
     tile: Dp,
+    narrow: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -75,26 +76,29 @@ fun FileRow(
     val name = if (deep) e.name.substringAfterLast('/') else e.name
     val meta = metaLine(e, deep)
     val bmp = rememberThumb(thumb, tile)
+    // MT density: ~40-44dp rows, small tile, one meta line.
     Row(
-        Modifier.fillMaxWidth().height(tile + 24.dp)
+        Modifier.fillMaxWidth().height(tile + 10.dp)
             .background(if (selected) Ej.colors.selection else Color.Transparent)
             .entryClicks(haptic, onClick, onLongClick)
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = if (narrow) 8.dp else 12.dp)
             .alpha(if (cutPending) 0.5f else 1f),
         verticalAlignment = Alignment.CenterVertically
     ) {
         FileTile(name, e.isDir, selected, bmp, tile)
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+        Column(Modifier.weight(1f).padding(start = if (narrow) 8.dp else 12.dp)) {
             Text(
                 name,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
+                lineHeight = 17.sp,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             if (meta.isNotEmpty()) Text(
                 meta,
-                fontSize = 11.sp,
+                fontSize = 10.5.sp,
+                lineHeight = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

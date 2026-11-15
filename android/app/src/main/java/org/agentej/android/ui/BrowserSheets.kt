@@ -52,64 +52,6 @@ import org.agentej.android.Native
 import org.agentej.android.Rc
 import org.agentej.android.Util
 
-/** Long-press menu for one entry. Write actions are hidden inside archives (read-only). */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EntrySheet(
-    st: BrowserState,
-    clipboard: FileClipboard,
-    nav: BrowserNav,
-    onOpen: (FsEntry) -> Unit,
-    onText: (FsEntry) -> Unit
-) {
-    val e = st.menuFor ?: return
-    val full = st.full(e)
-    val name = e.name.substringAfterLast('/')
-    fun act(block: () -> Unit) { st.menuFor = null; block() }
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = { st.menuFor = null }, sheetState = sheet) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp)) {
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                FileTile(name, e.isDir)
-                Column(Modifier.padding(start = 12.dp)) {
-                    Text(name, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        if (e.isDir) "Folder" else Util.compactSize(e.size) + if (e.mtime > 0) "   " + Util.fmtTime(e.mtime) else "",
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            SheetItem(Icons.Default.Check, "Select") { act { st.selected = setOf(e.name) } }
-            if (Util.ext(name) in setOf("apk", "apks", "xapk") && !st.inArchive)
-                SheetItem(Icons.Default.Build, "APK tools") { act { nav.apk(full) } }
-            if (!e.isDir) SheetItem(Icons.Default.List, "Open as text") { act { onText(e) } }
-            if (e.isDir || Util.isArchive(name)) SheetItem(EjIcons.Folder, "Open") { act { onOpen(e) } }
-            if (!st.inArchive) {
-                SheetItem(EjIcons.Copy, "Copy") { act { clipboard.set(listOf(full), false) } }
-                SheetItem(EjIcons.Cut, "Cut") { act { clipboard.set(listOf(full), true) } }
-                SheetItem(Icons.Default.Create, "Rename") { act { st.dialog = BrowserDialog.Rename(e) } }
-                SheetItem(Icons.Default.Delete, "Delete", danger = true) {
-                    act { st.dialog = BrowserDialog.Delete(listOf(full)) }
-                }
-            }
-            SheetItem(Icons.Default.Info, "Properties") { act { st.dialog = BrowserDialog.Info(e) } }
-        }
-    }
-}
-
-@Composable
-private fun SheetItem(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
-    val tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-    Row(
-        Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, tint = if (danger) tint else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-        Text(label, fontSize = 15.sp, color = tint, modifier = Modifier.padding(start = 20.dp))
-    }
-}
-
 @Composable
 fun BrowserDialogs(st: BrowserState, perform: (() -> Rc) -> Unit) {
     val close = { st.dialog = null }

@@ -28,6 +28,7 @@ file(GLOB EJ_CORE_SRC
     ${EJ_ROOT}/src/android/dex/*.c
     ${EJ_ROOT}/src/android/smali/*.c
     ${EJ_ROOT}/src/android/apk/*.c
+    ${EJ_ROOT}/src/android/sigkill/*.c
     ${EJ_ROOT}/src/crypto/*.c
 )
 

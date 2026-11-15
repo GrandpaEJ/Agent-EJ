@@ -26,7 +26,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,16 +50,22 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import org.agentej.android.ui.AgentXTheme
 import org.agentej.android.ui.ApkScreen
-import org.agentej.android.ui.BrowserNav
-import org.agentej.android.ui.BrowserScreen
+import org.agentej.android.ui.Commander
+import org.agentej.android.ui.DexScreen
 import org.agentej.android.ui.DrawerContent
+import org.agentej.android.ui.HexScreen
+import org.agentej.android.ui.ImageScreen
+import org.agentej.android.ui.Pane
 import org.agentej.android.ui.ViewerScreen
 
+/** Screens opened over the file panes. */
 sealed class Route {
-    data class Browse(val path: String) : Route()
     data class Apk(val path: String) : Route()
     /** [source] is the on-disk file when the text is editable, null for decoded/derived text. */
     data class Text(val title: String, val body: String, val source: String? = null) : Route()
+    data class Hex(val target: Target) : Route()
+    data class Image(val target: Target) : Route()
+    data class Dex(val target: Target) : Route()
 }
 
 /** A back-stack slot; [id] keys its saved UI state (scroll position, tabs). */
@@ -126,72 +134,60 @@ private fun Shell() {
     val prefs = remember { Prefs(context.applicationContext) }
     val clipboard = remember { FileClipboard() }
     val nextId = remember { longArrayOf(1) }
-    fun entry(r: Route) = Entry(nextId[0]++, r)
-
-    val start = remember { Native.homePath() }
-    val stack = remember { mutableStateListOf(entry(Route.Browse(start))) }
-    val forward = remember { mutableStateListOf<Entry>() }
+    val newId = { nextId[0]++ }
     val saver = rememberSaveableStateHolder()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    val push: (Route) -> Unit = { r ->
-        forward.forEach { saver.removeState(it.id) }
-        forward.clear()
-        stack.add(entry(r))
+    val panes = remember {
+        val home = Native.homePath()
+        val last = prefs.lastPaths
+        val start = { i: Int -> last.getOrNull(i)?.takeIf { FileOps.exists(it) } ?: home }
+        mutableStateListOf(Pane(start(0), newId), Pane(start(1), newId)).onEach { p ->
+            p.dropped = { saver.removeState(it) }
+        }
     }
-    val pop: () -> Unit = {
-        if (stack.size > 1) forward.add(stack.removeAt(stack.lastIndex))
-    }
-    val goForward: () -> Unit = {
-        if (forward.isNotEmpty()) stack.add(forward.removeAt(forward.lastIndex))
-    }
-    val jump: (String) -> Unit = { path ->
-        scope.launch { drawer.close() }
-        push(Route.Browse(path))
-    }
+    var active by remember { mutableIntStateOf(0) }
+    /** Viewer/tool screens stacked over the panes; empty = the panes are showing. */
+    val overlays = remember { mutableStateListOf<Entry>() }
+    val push: (Route) -> Unit = { overlays.add(Entry(newId(), it)) }
+    val pop: () -> Unit = { if (overlays.isNotEmpty()) saver.removeState(overlays.removeAt(overlays.lastIndex).id) }
+
+    LaunchedEffect(panes[0].path, panes[1].path) { prefs.savePanes(panes[0].path, panes[1].path) }
 
     BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
-    BackHandler(enabled = !drawer.isOpen && stack.size > 1) { pop() }
+    BackHandler(enabled = !drawer.isOpen && overlays.isNotEmpty()) { pop() }
 
-    val top = stack.last()
+    val top = overlays.lastOrNull()
     ModalNavigationDrawer(
         drawerState = drawer,
-        gesturesEnabled = top.route is Route.Browse || drawer.isOpen,
+        gesturesEnabled = top == null || drawer.isOpen,
         scrimColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f),
         drawerContent = {
-            DrawerContent(
-                current = (top.route as? Route.Browse)?.path ?: "",
-                prefs = prefs,
-                onOpen = jump
-            )
+            DrawerContent(current = panes[active].path, prefs = prefs, onOpen = { path ->
+                scope.launch { drawer.close() }
+                overlays.forEach { saver.removeState(it.id) }
+                overlays.clear()
+                panes[active].open(path)
+            })
         }
     ) {
-        saver.SaveableStateProvider(top.id) {
+        if (top == null) {
+            Commander(
+                panes = panes, active = active, onActivate = { active = it },
+                onSwap = {
+                    if (prefs.dual) { val a = panes[0]; panes[0] = panes[1]; panes[1] = a } else active = 1 - active
+                },
+                prefs = prefs, clipboard = clipboard, saver = saver, push = push,
+                openDrawer = { scope.launch { drawer.open() } }
+            )
+        } else saver.SaveableStateProvider(top.id) {
             when (val route = top.route) {
-                is Route.Browse -> BrowserScreen(
-                    path = route.path,
-                    prefs = prefs,
-                    clipboard = clipboard,
-                    nav = BrowserNav(
-                        canBack = stack.size > 1,
-                        canForward = forward.isNotEmpty(),
-                        back = pop,
-                        forward = goForward,
-                        open = { push(Route.Browse(it)) },
-                        text = { t, b, src -> push(Route.Text(t, b, src)) },
-                        apk = { push(Route.Apk(it)) },
-                        drawer = { scope.launch { drawer.open() } }
-                    )
-                )
-
-                is Route.Apk -> ApkScreen(
-                    apkPath = route.path,
-                    onBack = pop,
-                    onView = { title, body -> push(Route.Text(title, body)) }
-                )
-
+                is Route.Apk -> ApkScreen(apkPath = route.path, onBack = pop, onView = { t, b -> push(Route.Text(t, b)) })
                 is Route.Text -> ViewerScreen(route.title, route.body, route.source, onBack = pop)
+                is Route.Hex -> HexScreen(route.target, onBack = pop)
+                is Route.Image -> ImageScreen(route.target, onBack = pop)
+                is Route.Dex -> DexScreen(route.target, onBack = pop, onView = { t, b -> push(Route.Text(t, b)) })
             }
         }
     }

@@ -23,6 +23,10 @@ class Prefs(context: Context) {
         private set
     var grid by mutableStateOf(sp.getBoolean("grid", false))
         private set
+    var dual by mutableStateOf(sp.getBoolean("dual", true))
+        private set
+    /** Folders the two panes showed last, restored on the next launch. */
+    val lastPaths: List<String> get() = listOf(sp.getString("pane0", null), sp.getString("pane1", null)).mapNotNull { it }
     var bookmarks by mutableStateOf(
         sp.getString("bookmarks", null)?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
     )
@@ -47,6 +51,15 @@ class Prefs(context: Context) {
     fun toggleGrid() {
         grid = !grid
         sp.edit().putBoolean("grid", grid).apply()
+    }
+
+    fun toggleDual() {
+        dual = !dual
+        sp.edit().putBoolean("dual", dual).apply()
+    }
+
+    fun savePanes(a: String, b: String) {
+        sp.edit().putString("pane0", a).putString("pane1", b).apply()
     }
 
     fun toggleBookmark(path: String) {
