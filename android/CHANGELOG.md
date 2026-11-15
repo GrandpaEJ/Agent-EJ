@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [New Released]
 
+## [0.8.0] - 2026-11-16
+
+### Added
+- XML editor: edit decoded XML and save it into a signed _edited.apk; smaller saved APKs
+
+
 ## [0.7.0] - 2026-11-15
 
 ### Added
