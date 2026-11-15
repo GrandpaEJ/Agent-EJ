@@ -202,7 +202,7 @@ int apk_build(const char *src_dir, const char *out_apk, const char *key_path, co
     qsort(dirs, dir_count, sizeof(char *), cmp_smali_dirs);
 
     /* classes.dex, classes2.dex ... numbered across all dirs, since one dir may spill over */
-    int next_idx = 1;
+    int next_idx = 1, failed = 0;
     for (int i = 0; i < dir_count; i++) {
         char smali_dir[1024], dex_path[1024], dex_name[64];
         snprintf(smali_dir, sizeof(smali_dir), "%s/%s", src_dir, dirs[i]);
@@ -219,10 +219,20 @@ int apk_build(const char *src_dir, const char *out_apk, const char *key_path, co
                 dex_files[dex_count++] = strdup(part);
             }
             next_idx += written;
+        } else if (!failed) {
+            /* a dir that does not assemble used to be dropped silently,
+             * shipping an APK with whole dex files missing — refuse instead */
+            fprintf(stderr, "apk_build: smali assembly failed in %s\n", dirs[i]);
+            failed = 1;
         }
         free(dirs[i]);
     }
     free(dirs);
+    if (failed) {
+        for (int i = 0; i < dex_count; i++) { remove(dex_files[i]); free(dex_files[i]); }
+        free(dex_files);
+        return -1;
+    }
 
     char tmp_unaligned[1024];
     snprintf(tmp_unaligned, sizeof(tmp_unaligned), "%s.unaligned.zip", out_apk);
