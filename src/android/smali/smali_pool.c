@@ -1,6 +1,5 @@
 #include "smali_pool.h"
 #include <string.h>
-#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -96,27 +95,6 @@ static int comp_str(const void *a, const void *b) {
     }
 }
 
-/* A string is promoted to a type_id only if it is a well-formed descriptor:
- * ART rejects the whole DEX for one bad type ("Invalid type descriptor"),
- * and plain strings such as generic-signature fragments ("L:Ljava/lang/
- * Object;") or regexes ("[p: ") otherwise look type-like. */
-static int is_type_descriptor(const char *s) {
-    int dims = 0;
-    while (*s == '[') { s++; dims++; }
-    if (dims > 255) return 0;
-    if (*s && !s[1] && strchr("ZBSCIJFD", *s)) return 1;
-    if (*s == 'V' && !s[1]) return dims == 0;
-    if (*s != 'L') return 0;
-    const unsigned char *p = (const unsigned char *)s + 1;
-    int seg = 0;
-    for (; *p && *p != ';'; p++) {
-        if (*p == '/') { if (!seg) return 0; seg = 0; continue; }
-        if (*p < 0x80 && !(isalnum(*p) || *p == '$' || *p == '_' || *p == '-')) return 0;
-        seg++;
-    }
-    return *p == ';' && !p[1] && seg > 0;
-}
-
 static void pool_rebuild_hash(smali_pool_strings_t *p) {
     for (uint32_t i = 0; i < p->bucket_count; i++) {
         smali_pool_entry_t *e = p->buckets[i];
@@ -136,7 +114,14 @@ void smali_pool_sort_strings(smali_pool_strings_t *p) {
     pool_rebuild_hash(p);
 }
 
-static void add_sig_types(smali_pool_strings_t *strings, const char *sig) {
+/* A string used as a type: it belongs to both the string and type pools. */
+static void add_type(smali_ctx_def_t *ctx, const char *s) {
+    if (!s) return;
+    smali_pool_add(&ctx->strings, s);
+    smali_pool_add(&ctx->types, s);
+}
+
+static void add_sig_types(smali_ctx_def_t *ctx, const char *sig) {
     const char *p = sig;
     if (*p == '(') p++;
     while (*p && *p != ')') {
@@ -152,12 +137,12 @@ static void add_sig_types(smali_pool_strings_t *strings, const char *sig) {
             p++;
         }
         char *type = strndup(start, p - start);
-        smali_pool_add(strings, type);
+        add_type(ctx, type);
         free(type);
     }
     if (*p == ')') p++;
     if (*p) {
-        smali_pool_add(strings, p);
+        add_type(ctx, p);
     }
 }
 
@@ -421,14 +406,12 @@ static void pool_add_annotation_elem(smali_ctx_def_t *ctx, smali_annotation_elem
         char *paren = arrow ? strchr(arrow, '(') : NULL;
         if (arrow && paren && paren > arrow + 2) {
             smali_pool_add(&ctx->methods, el->value_str);
-            smali_pool_add(&ctx->strings, el->value_str);
             char *cls = strndup(el->value_str, arrow - el->value_str);
-            smali_pool_add(&ctx->strings, cls);
-            smali_pool_add(&ctx->types, cls);
+            add_type(ctx, cls);
             free(cls);
             char *name = strndup(arrow + 2, paren - (arrow + 2));
             smali_pool_add(&ctx->strings, name);
-            add_sig_types(&ctx->strings, paren);
+            add_sig_types(ctx, paren);
             add_shorty_string(&ctx->strings, paren);
             smali_pool_add(&ctx->protos, paren);
             free(name);
@@ -439,7 +422,6 @@ static void pool_add_annotation_elem(smali_ctx_def_t *ctx, smali_annotation_elem
         char *colon = arrow ? strchr(arrow, ':') : NULL;
         if (arrow && colon && colon > arrow + 2) {
             smali_pool_add(&ctx->fields, el->value_str);
-            smali_pool_add(&ctx->strings, el->value_str);
             char *cls = strndup(el->value_str, arrow - el->value_str);
             char *name = strndup(arrow + 2, colon - (arrow + 2));
             char *typ = strdup(colon + 1);
@@ -457,7 +439,7 @@ static void pool_add_annotation_elem(smali_ctx_def_t *ctx, smali_annotation_elem
         }
     }
     if (el->value_type == VALUE_TYPE_ANNOT && el->annot_type) {
-        smali_pool_add(&ctx->strings, el->annot_type);
+        add_type(ctx, el->annot_type);
         for (int si = 0; si < el->annot_elem_count; si++) {
             pool_add_annotation_elem(ctx, &el->sub_elems[si]);
         }
@@ -465,7 +447,7 @@ static void pool_add_annotation_elem(smali_ctx_def_t *ctx, smali_annotation_elem
 }
 
 static void pool_add_annot(smali_ctx_def_t *ctx, smali_annotation_t *a) {
-    if (a->type) smali_pool_add(&ctx->strings, a->type);
+    if (a->type) add_type(ctx, a->type);
     for (uint32_t k = 0; k < a->elem_count && k < MAX_ANNOT_ELEMS; k++)
         pool_add_annotation_elem(ctx, &a->elems[k]);
 }
@@ -477,23 +459,22 @@ void smali_pool_build_all(smali_ctx_def_t *ctx) {
     smali_pool_init(&ctx->fields);
     smali_pool_init(&ctx->methods);
 
-    // Seed only common primitive type strings (VZIJFD are always needed for shorties)
-    // B, C, S are added on-demand when actually referenced
-    const char *prims[] = {"V", "Z", "I", "J", "F", "D"};
-    for (int i = 0; i < 6; i++) smali_pool_add(&ctx->strings, prims[i]);
+    /* No primitive is seeded: every primitive that is used reaches the pool
+     * through a signature, a field type or a shorty, and smali.jar keeps
+     * unused ones out of string_ids/type_ids. */
 
     // 1. Gather all raw strings from class headers and instructions
     for (uint32_t i = 0; i < ctx->class_count; i++) {
         smali_class_def_t *c = &ctx->classes[i];
-        smali_pool_add(&ctx->strings, c->descriptor);
-        if (c->super_class) smali_pool_add(&ctx->strings, c->super_class);
+        add_type(ctx, c->descriptor);
+        if (c->super_class) add_type(ctx, c->super_class);
         if (c->source_file) smali_pool_add(&ctx->strings, c->source_file);
-        for (uint32_t j = 0; j < c->interface_count; j++) smali_pool_add(&ctx->strings, c->interfaces[j]);
+        for (uint32_t j = 0; j < c->interface_count; j++) add_type(ctx, c->interfaces[j]);
 
         /* add annotation types and element names */
         for (uint32_t j = 0; j < c->annot_count && j < MAX_ANNOTS; j++) {
             smali_annotation_t *a = &c->annots[j];
-            if (a->type) smali_pool_add(&ctx->strings, a->type);
+            if (a->type) add_type(ctx, a->type);
             for (uint32_t k = 0; k < a->elem_count && k < MAX_ANNOT_ELEMS; k++) {
                 smali_annotation_elem_t *el = &a->elems[k];
                 pool_add_annotation_elem(ctx, el);
@@ -510,7 +491,7 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
                 if (ma[j].annot_count > 0) {
                     for (uint32_t ai = 0; ai < ma[j].annot_count && ai < MAX_ANNOTS; ai++) {
                         smali_annotation_t *a = &ma[j].annots[ai];
-                        if (a->type) smali_pool_add(&ctx->strings, a->type);
+                        if (a->type) add_type(ctx, a->type);
                         for (uint32_t k = 0; k < a->elem_count && k < MAX_ANNOT_ELEMS; k++) {
                             smali_annotation_elem_t *el = &a->elems[k];
                             pool_add_annotation_elem(ctx, el);
@@ -522,26 +503,25 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
 
         for (uint32_t j = 0; j < c->static_field_count; j++) {
             smali_pool_add(&ctx->strings, c->static_fields[j].name);
-            smali_pool_add(&ctx->strings, c->static_fields[j].type);
+            add_type(ctx, c->static_fields[j].type);
             if (c->static_fields[j].has_init_value) {
                 smali_field_def_t *f = &c->static_fields[j];
                 if (f->value_type == VALUE_TYPE_STRING && f->value_str)
                     smali_pool_add(&ctx->strings, f->value_str);
                 else if (f->value_type == VALUE_TYPE_TYPE && f->value_str)
-                    smali_pool_add(&ctx->strings, f->value_str);
+                    add_type(ctx, f->value_str);
                 else if (f->value_type == VALUE_TYPE_ARRAY && f->init_array)
                     pool_add_annotation_elem(ctx, f->init_array);
                 else if (f->value_type == VALUE_TYPE_ENUM && f->value_str) {
                     /* The initializer names a field: it has to be in the field
                      * pool, otherwise the encoded value points at field 0. */
                     pool_add_enum_ref(ctx, f->value_str);
-                    smali_pool_add(&ctx->strings, f->value_str);
                 }
             }
         }
         for (uint32_t j = 0; j < c->instance_field_count; j++) {
             smali_pool_add(&ctx->strings, c->instance_fields[j].name);
-            smali_pool_add(&ctx->strings, c->instance_fields[j].type);
+            add_type(ctx, c->instance_fields[j].type);
         }
         for (int ft = 0; ft < 2; ft++) {
             uint32_t fc = ft ? c->instance_field_count : c->static_field_count;
@@ -556,7 +536,7 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
             for (uint32_t j = 0; j < mc; j++) {
                 smali_method_def_t *m = &m_arr[j];
                 smali_pool_add(&ctx->strings, m->name);
-                add_sig_types(&ctx->strings, m->signature);
+                add_sig_types(ctx, m->signature);
                 add_shorty_string(&ctx->strings, m->signature);
 
                 /* The debug information refers to the parameter and local
@@ -575,7 +555,7 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
 
                 for (uint32_t c_idx = 0; c_idx < m->catches_count; c_idx++) {
                     if (m->catches[c_idx].type) {
-                        smali_pool_add(&ctx->strings, m->catches[c_idx].type);
+                        add_type(ctx, m->catches[c_idx].type);
                     }
                 }
 
@@ -587,20 +567,22 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
                             char *colon = strchr(ins->ref_str, ':');
                             char *paren = strchr(ins->ref_str, '(');
                             char *class_part = strndup(ins->ref_str, arrow - ins->ref_str);
-                            smali_pool_add(&ctx->strings, class_part);
+                            add_type(ctx, class_part);
                             if (colon) {
                                 char *name_part = strndup(arrow + 2, colon - (arrow + 2));
                                 smali_pool_add(&ctx->strings, name_part);
-                                smali_pool_add(&ctx->strings, colon + 1);
+                                add_type(ctx, colon + 1);
                                 free(name_part);
                             } else if (paren) {
                                 char *name_part = strndup(arrow + 2, paren - (arrow + 2));
                                 smali_pool_add(&ctx->strings, name_part);
-                                add_sig_types(&ctx->strings, paren);
+                                add_sig_types(ctx, paren);
                                 add_shorty_string(&ctx->strings, paren);
                                 free(name_part);
                             }
                             free(class_part);
+                        } else if (ins->kind == 2) {
+                            add_type(ctx, ins->ref_str);
                         } else {
                             smali_pool_add(&ctx->strings, ins->ref_str);
                         }
@@ -612,15 +594,9 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
 
     smali_pool_sort_strings(&ctx->strings);
 
-    // 2. Build Type Pool - only types actually referenced
-    for (uint32_t i = 0; i < ctx->strings.count; i++) {
-        const char *s = ctx->strings.strings[i];
-        if (is_type_descriptor(s)) {
-            smali_pool_add(&ctx->types, s);
-        }
-    }
-    /* V is always needed as a type (void return type) */
-    smali_pool_add(&ctx->types, "V");
+    /* 2. The type pool holds what is used as a type (add_type); a string
+     * that merely looks like a descriptor (a Signature annotation chunk, a
+     * const-string) is not a type, as in smali.jar. */
 
     // Add primitive types that appear as field types or return types in method sigs
     for (uint32_t i = 0; i < ctx->class_count; i++) {

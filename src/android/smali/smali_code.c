@@ -28,6 +28,23 @@ static int comp_ranges(const void *a, const void *b) {
     return (ra->end_addr < rb->end_addr) ? -1 : 1;
 }
 
+/* encoded_catch_handler: typed handlers, then the catch-all (size < 0). */
+static void write_catch_handler(smali_buf_t *b, const write_try_range_t *r) {
+    const write_handler_t *catch_all = NULL;
+    uint32_t typed = 0;
+    for (uint32_t h = 0; h < r->handlers_count; h++) {
+        if (r->handlers[h].type_idx != 0xFFFFFFFF) typed++;
+        else if (!catch_all) catch_all = &r->handlers[h];
+    }
+    buf_write_sleb128(b, catch_all ? -(int32_t)typed : (int32_t)typed);
+    for (uint32_t h = 0; h < r->handlers_count; h++) {
+        if (r->handlers[h].type_idx == 0xFFFFFFFF) continue;
+        buf_write_uleb128(b, r->handlers[h].type_idx);
+        buf_write_uleb128(b, r->handlers[h].handler_addr);
+    }
+    if (catch_all) buf_write_uleb128(b, catch_all->handler_addr);
+}
+
 int write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_t *m, uint32_t *out_offset) {
     if (m->access_flags & 0x0500) { *out_offset = 0; return 0; }
     if (m->insns_count == 0 || m->insns_count > 65536) { *out_offset = 0; return 0; }
@@ -131,13 +148,22 @@ int write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_t *m,
         free(insn_offsets);
     }
 
+    /* outs_size as dexlib2 computes it: the largest argument-register count
+     * of a referenced method ("this" included unless invoke-static).
+     * filled-new-array and invoke-custom pass registers but do not count. */
     uint16_t outs_size = 0;
     for (uint32_t i = 0; i < m->insns_count; i++) {
-        if (m->insns[i].fmt == 14 || m->insns[i].fmt == 15) {
-            if (m->insns[i].vA > outs_size) {
-                outs_size = m->insns[i].vA;
-            }
+        const smali_insn_t *in = &m->insns[i];
+        if (in->kind != 4 || !in->ref_str) continue;
+        const char *sig = strchr(in->ref_str, '(');
+        uint32_t regs = (in->op == 0x71 || in->op == 0x77) ? 0 : 1;
+        for (const char *p = sig ? sig + 1 : ""; *p && *p != ')'; regs++) {
+            if (*p == 'J' || *p == 'D') regs++;
+            while (*p == '[') p++;
+            if (*p == 'L') { while (*p && *p != ';') p++; }
+            if (*p) p++;
         }
+        if (regs > outs_size) outs_size = (uint16_t)regs;
     }
 
     {
@@ -203,52 +229,54 @@ int write_code_item(smali_ctx_def_t *ctx, smali_buf_t *b, smali_method_def_t *m,
             buf_write_u16(b, 0);
         }
 
+        /* Each range's encoded_catch_handler; ranges with an identical
+         * handler share one entry of the list, as dexlib2 writes it. */
+        smali_buf_t enc;
+        buf_init(&enc);
+        uint32_t *estart = malloc((range_count + 1) * sizeof(uint32_t));
+        uint32_t *uniq = malloc(range_count * sizeof(uint32_t));   /* range -> distinct # */
+        uint32_t *first = malloc(range_count * sizeof(uint32_t));  /* distinct # -> range */
+        uint32_t ndistinct = 0;
+        for (uint32_t r = 0; r < range_count; r++) {
+            estart[r] = enc.len;
+            write_catch_handler(&enc, &ranges[r]);
+            estart[r + 1] = enc.len;
+            uint32_t len = enc.len - estart[r], d = 0;
+            for (; d < ndistinct; d++) {
+                uint32_t o = first[d];
+                if (estart[o + 1] - estart[o] == len &&
+                    memcmp(enc.buf + estart[o], enc.buf + estart[r], len) == 0) break;
+            }
+            if (d == ndistinct) first[ndistinct++] = r;
+            uniq[r] = d;
+        }
+
         smali_buf_t h_buf;
         buf_init(&h_buf);
-        buf_write_uleb128(&h_buf, range_count);
-
-        uint32_t *handler_list_offsets = malloc(range_count * sizeof(uint32_t));
-        for (uint32_t r = 0; r < range_count; r++) {
-            handler_list_offsets[r] = h_buf.len;
-            int has_catchall = 0;
-            uint32_t explicit_count = 0;
-            for (uint32_t h = 0; h < ranges[r].handlers_count; h++) {
-                if (ranges[r].handlers[h].type_idx == 0xFFFFFFFF) has_catchall = 1;
-                else explicit_count++;
-            }
-            int32_t size = has_catchall ? -((int32_t)explicit_count) : (int32_t)explicit_count;
-            buf_write_sleb128(&h_buf, size);
-
-            for (uint32_t h = 0; h < ranges[r].handlers_count; h++) {
-                if (ranges[r].handlers[h].type_idx != 0xFFFFFFFF) {
-                    buf_write_uleb128(&h_buf, ranges[r].handlers[h].type_idx);
-                    buf_write_uleb128(&h_buf, ranges[r].handlers[h].handler_addr);
-                }
-            }
-            if (has_catchall) {
-                for (uint32_t h = 0; h < ranges[r].handlers_count; h++) {
-                    if (ranges[r].handlers[h].type_idx == 0xFFFFFFFF) {
-                        buf_write_uleb128(&h_buf, ranges[r].handlers[h].handler_addr);
-                        break;
-                    }
-                }
-            }
+        buf_write_uleb128(&h_buf, ndistinct);
+        uint32_t *handler_list_offsets = malloc((ndistinct ? ndistinct : 1) * sizeof(uint32_t));
+        for (uint32_t d = 0; d < ndistinct; d++) {
+            uint32_t r = first[d];
+            handler_list_offsets[d] = h_buf.len;
+            buf_write(&h_buf, enc.buf + estart[r], estart[r + 1] - estart[r]);
         }
 
         for (uint32_t r = 0; r < range_count; r++) {
             buf_write_u32(b, ranges[r].start_addr);
             buf_write_u16(b, (uint16_t)(ranges[r].end_addr - ranges[r].start_addr));
-            buf_write_u16(b, (uint16_t)handler_list_offsets[r]);
+            buf_write_u16(b, (uint16_t)handler_list_offsets[uniq[r]]);
         }
 
         buf_write(b, h_buf.buf, h_buf.len);
         buf_free(&h_buf);
-        free(handler_list_offsets);
+        buf_free(&enc);
+        free(handler_list_offsets); free(estart); free(uniq); free(first);
     }
 
     free(code_buf);
     free(ranges);
-    align_4(b);
+    /* No padding after the item: the next code_item aligns itself, and
+     * smali.jar starts class_data right after the last one. */
     *out_offset = offset;
     return 0;
 }

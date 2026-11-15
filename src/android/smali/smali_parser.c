@@ -310,14 +310,9 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                                     return -1;
                                 }
                                 has_init = 1;
-                            } else if (strncmp(val_tok + (val_tok[0] == '-'), "0x", 2) != 0 &&
-                                       (val_tok[strlen(val_tok) - 1] == 'f' || val_tok[strlen(val_tok) - 1] == 'd')) {
-                                if (val_tok[strlen(val_tok) - 1] == 'd') {
-                                    val_type = VALUE_TYPE_DOUBLE;
-                                } else {
-                                    val_type = VALUE_TYPE_FLOAT;
-                                }
-                                val_double = strtod(val_tok, NULL);
+                            } else if (smali_parse_fp_lit(val_tok, &val_double)) {
+                                val_type = smali_parse_fp_lit(val_tok, &val_double) == 'D'
+                                         ? VALUE_TYPE_DOUBLE : VALUE_TYPE_FLOAT;
                                 has_init = 1; free(val_tok);
                             } else if (val_tok[0] == 'L' || val_tok[0] == '[') {
                                 val_type = VALUE_TYPE_TYPE; val_str = val_tok; has_init = 1;

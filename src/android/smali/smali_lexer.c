@@ -134,3 +134,21 @@ int64_t smali_parse_lit(const char *tok) {
     uint64_t v = strtoull(tok, NULL, 0);
     return (int64_t)(neg ? (uint64_t)0 - v : v);
 }
+
+int smali_parse_fp_lit(const char *tok, double *out) {
+    const char *t = tok + (*tok == '-' || *tok == '+');
+    if (t[0] == '0' && (t[1] == 'x' || t[1] == 'X')) return 0;      /* hex integer */
+    size_t n = strlen(tok);
+    if (!n) return 0;
+    char last = tok[n - 1];
+    int named = strncmp(t, "Infinity", 8) == 0 || strncmp(t, "NaN", 3) == 0;
+    int digits = (*t >= '0' && *t <= '9') || *t == '.';
+    if (!named && !digits) return 0;
+    int kind;
+    if (last == 'f' || last == 'F') kind = 'F';
+    else if (last == 'd' || last == 'D') kind = 'D';
+    else if (named || strpbrk(t, ".eE")) kind = 'D';
+    else return 0;                                                  /* integer */
+    *out = strtod(tok, NULL);
+    return kind;
+}

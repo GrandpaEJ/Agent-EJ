@@ -2,7 +2,10 @@
 """DEX structural invariants (G7 / G8) checker.
 
 G7: a section whose size field is 0 must have offset 0.
-G8: every section offset must be 4-byte aligned.
+G8: every section whose items are 4-byte aligned must start 4-byte aligned.
+    string_data, debug_info, annotation, encoded_array and class_data items
+    have no alignment in the DEX format (ART checks them byte-aligned) and
+    smali.jar packs them unpadded, so they are exempt.
 Also checks the header file_size field against the real file size and that
 the map section agrees with the section sizes.
 """
@@ -30,6 +33,10 @@ SECTIONS = [
     ("encoded_array_item", 0x2005, 0),
     ("annotations_directory_item", 0x2006, 0),
 ]
+
+
+# Item types with alignment 1 (dex-format "alignment: none").
+UNALIGNED = {0x2000, 0x2002, 0x2003, 0x2004, 0x2005}
 
 
 def check(path):
@@ -73,7 +80,7 @@ def check(path):
         mtype, unused, msize, moff = struct.unpack_from("<HHII", data, eoff)
         if msize == 0 and moff != 0:
             errs.append("map entry type 0x%04x: size 0 but offset %d != 0 (G7)" % (mtype, moff))
-        if moff % 4 != 0:
+        if moff % 4 != 0 and mtype not in UNALIGNED:
             errs.append("map entry type 0x%04x: offset %d not 4-byte aligned (G8)" % (mtype, moff))
         seen[mtype] = (msize, moff)
     for t, (sz, off) in seen.items():

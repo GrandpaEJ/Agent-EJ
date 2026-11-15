@@ -100,6 +100,12 @@ int smali_parse_annot_value(char **p, smali_annotation_elem_t *el, uint32_t line
         }
         return 0;
     }
+    if (tok[0] && !tok[1] && strchr("VZBSCIJFD", tok[0])) {
+        /* a primitive type literal ("flagsFromClass = V") */
+        el->value_type = VALUE_TYPE_TYPE;
+        el->value_str = tok;
+        return 0;
+    }
     if (strcmp(tok, ".subannotation") == 0) {
         free(tok);
         el->value_type = VALUE_TYPE_ANNOT;
@@ -134,9 +140,9 @@ int smali_parse_annot_value(char **p, smali_annotation_elem_t *el, uint32_t line
         return 0;
     }
     size_t tl = strlen(tok);
-    if (strncmp(tok + (tok[0] == '-'), "0x", 2) != 0 && tl > 1 && (tok[tl - 1] == 'f' || tok[tl - 1] == 'd')) {
-        el->value_type = tok[tl - 1] == 'd' ? VALUE_TYPE_DOUBLE : VALUE_TYPE_FLOAT;
-        el->value_double = strtod(tok, NULL);
+    int fp = smali_parse_fp_lit(tok, &el->value_double);
+    if (fp) {
+        el->value_type = fp == 'D' ? VALUE_TYPE_DOUBLE : VALUE_TYPE_FLOAT;
     } else {
         el->value_int = (int64_t)smali_parse_lit(tok);
         el->value_type = tok[tl - 1] == 'L' ? VALUE_TYPE_LONG

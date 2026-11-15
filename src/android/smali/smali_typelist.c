@@ -4,49 +4,54 @@
 #include <string.h>
 
 void smali_typelist_reg_init(smali_typelist_reg_t *reg) {
-    memset(reg, 0, sizeof(*reg));
+    smali_blobset_init(&reg->lists);
+    reg->first_offset = 0;
 }
 
 void smali_typelist_reg_free(smali_typelist_reg_t *reg) {
-    for (uint32_t i = 0; i < reg->count; i++) free(reg->items[i].types);
-    free(reg->items);
-    memset(reg, 0, sizeof(*reg));
+    smali_blobset_free(&reg->lists);
 }
 
-/* Compares a candidate list with a list that is already written. */
-static int typelist_equal(const smali_typelist_t *item, const uint16_t *types, uint32_t count) {
-    if (item->count != count) return 0;
-    for (uint32_t i = 0; i < count; i++)
-        if (item->types[i] != types[i]) return 0;
-    return 1;
+uint32_t smali_typelist_add(smali_typelist_reg_t *reg, const uint16_t *types, uint32_t count) {
+    if (count == 0) return UINT32_MAX;
+    return smali_blobset_add(&reg->lists, (const uint8_t *)types, count * sizeof(uint16_t));
 }
 
-uint32_t smali_typelist_write(smali_typelist_reg_t *reg, smali_buf_t *buf,
-                               const uint16_t *types, uint32_t count) {
-    if (count == 0) return 0;
+static uint16_t type_at(const smali_blobset_t *s, uint32_t id, uint32_t i) {
+    uint16_t t;
+    memcpy(&t, smali_blob_data(s, id) + i * sizeof(uint16_t), sizeof(t));
+    return t;
+}
 
-    for (uint32_t i = 0; i < reg->count; i++) {
-        if (typelist_equal(&reg->items[i], types, count))
-            return reg->items[i].offset;
+/* dexlib2 compareAsIterable over the type names; type_ids are in name order. */
+static int cmp_lists(const smali_blobset_t *s, uint32_t a, uint32_t b, void *arg) {
+    (void)arg;
+    uint32_t na = s->items[a].len / 2, nb = s->items[b].len / 2;
+    for (uint32_t i = 0; i < na && i < nb; i++) {
+        uint16_t x = type_at(s, a, i), y = type_at(s, b, i);
+        if (x != y) return x < y ? -1 : 1;
     }
+    return na < nb ? -1 : na > nb;
+}
 
+void smali_typelist_flush(smali_typelist_reg_t *reg, smali_buf_t *buf) {
+    smali_blobset_t *s = &reg->lists;
+    uint32_t *order = smali_blobset_sorted(s, cmp_lists, NULL);
+    if (!order) return;
     align_4(buf);
-    uint32_t offset = buf->len;
-    buf_write_u32(buf, count);
-    for (uint32_t i = 0; i < count; i++)
-        buf_write_u16(buf, types[i]);
-
-    if (reg->count >= reg->cap) {
-        reg->cap = reg->cap ? reg->cap * 2 : 16;
-        reg->items = realloc(reg->items, reg->cap * sizeof(smali_typelist_t));
+    for (uint32_t k = 0; k < s->count; k++) {
+        uint32_t id = order[k], n = s->items[id].len / 2;
+        align_4(buf);
+        s->items[id].off = buf->len;
+        if (k == 0) reg->first_offset = buf->len;
+        buf_write_u32(buf, n);
+        for (uint32_t i = 0; i < n; i++) buf_write_u16(buf, type_at(s, id, i));
     }
-    smali_typelist_t *item = &reg->items[reg->count++];
-    item->offset = offset;
-    item->count = count;
-    item->types = malloc(count * sizeof(uint16_t));
-    memcpy(item->types, types, count * sizeof(uint16_t));
-    if (reg->count == 1) reg->first_offset = offset;
-    return offset;
+    free(order);
+}
+
+uint32_t smali_typelist_offset(const smali_typelist_reg_t *reg, uint32_t id) {
+    return id == UINT32_MAX ? 0 : reg->lists.items[id].off;
 }
 
 uint32_t smali_typelist_from_proto(smali_pool_strings_t *types_pool,
