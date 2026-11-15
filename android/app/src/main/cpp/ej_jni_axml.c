@@ -11,6 +11,21 @@ static uint8_t *load_source(const char *arc, const char *entry, size_t *len) {
     return ej_read_file(arc, len, 0);
 }
 
+/* The resources.arsc that names this XML's ids, as MT does: the APK's own when
+ * the XML is inside one, else one sitting in the same folder as the file. */
+static uint8_t *load_arsc(const char *arc, const char *entry, size_t *len) {
+    if (entry && entry[0]) return ej_read_zip_entry(arc, "resources.arsc", len);
+    const char *slash = strrchr(arc, '/');
+    size_t dl = slash ? (size_t)(slash - arc) + 1 : 0;
+    char *p = malloc(dl + sizeof("resources.arsc"));
+    if (!p) return NULL;
+    memcpy(p, arc, dl);
+    strcpy(p + dl, "resources.arsc");
+    uint8_t *d = ej_read_file(p, len, 0);
+    free(p);
+    return d;
+}
+
 JNIEXPORT jstring JNICALL
 Java_org_agentej_android_Native_axmlDecode(JNIEnv *env, jobject thiz, jstring jarc,
                                            jstring jentry) {
@@ -25,9 +40,15 @@ Java_org_agentej_android_Native_axmlDecode(JNIEnv *env, jobject thiz, jstring ja
         if (data && len > 0) {
             axml_ctx *ax = axml_parse(data, len);
             if (ax) {
+                size_t alen = 0;
+                uint8_t *adata = load_arsc(arc, entry, &alen);
+                arsc_ctx *rs = adata && alen ? arsc_parse(adata, alen) : NULL;
+                if (rs) axml_set_arsc(ax, rs);
                 char *xml = axml_get_xml(ax);  /* owned by the context, do not free */
                 if (xml) out = ej_jstr(env, xml);
                 axml_free(ax);
+                if (rs) arsc_free(rs);
+                free(adata);
             }
         }
         free(data);

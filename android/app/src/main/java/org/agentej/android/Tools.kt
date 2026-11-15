@@ -58,7 +58,7 @@ object Tools {
                 val xml = Native.readText(p, 8 * 1024 * 1024)
                     ?: return JobResult(Rc(-1, "not a text XML file"), null)
                 val out = Outputs.beside(p, "${b}_binary.xml")
-                JobResult(int(Native.axmlEncode(xml, out), "encoded to binary XML", "encode failed"), out)
+                JobResult(int(Native.axmlEncode(AxmlText.frameworkIds(xml), out), "encoded to binary XML", "encode failed"), out)
             }
             Act.ARSC_TOML -> Outputs.beside(p, "$b.toml").let { JobResult(rc(Native.arscDumpToml(p, it)), it) }
             Act.BUILD -> Outputs.beside(p, "${b}_build.apk").let { JobResult(rc(Native.apkBuild(p, it)), it) }
@@ -72,7 +72,7 @@ object Tools {
     }
 
     /** Text produced by a viewing action: (title, body), or null when it has none. */
-    fun view(act: Act, t: Target): Pair<String, String>? {
+    fun view(act: Act, t: Target, pm: android.content.pm.PackageManager? = null): Pair<String, String>? {
         val arc = t.archive ?: t.path
         val entry = t.entry ?: ""
         return when (act) {
@@ -81,7 +81,7 @@ object Tools {
                 else Native.readText(t.path, 4 * 1024 * 1024)
                 text?.let { t.name to it }
             }
-            Act.AXML_VIEW -> Native.axmlDecode(arc, entry).takeIf { it.isNotBlank() }?.let { t.name to it }
+            Act.AXML_VIEW -> AxmlText.decode(pm, arc, entry).takeIf { it.isNotBlank() }?.let { t.name to it }
             Act.DEX_INFO -> Native.dexDump(arc, entry).takeIf { it.isNotBlank() }?.let { "${t.name} · property" to it }
             Act.ARSC_STRINGS -> Native.arscStrings(arc, 20000)?.let { list ->
                 "${t.name} · strings" to list.mapIndexed { i, s -> "$i\t$s" }.joinToString("\n")

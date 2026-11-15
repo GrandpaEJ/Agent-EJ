@@ -126,7 +126,7 @@ fun Commander(
     }
 
     fun viewText(act: Act, t: Target) = scope.launch {
-        val v = withContext(Dispatchers.IO) { Tools.view(act, t) }
+        val v = withContext(Dispatchers.IO) { Tools.view(act, t, context.packageManager) }
         when {
             v != null -> push(Route.Text(v.first, v.second, if (act == Act.TEXT && !t.inArchive) t.path else null))
             act == Act.TEXT -> {

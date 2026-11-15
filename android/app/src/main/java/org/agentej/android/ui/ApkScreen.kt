@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.agentej.android.AxmlText
 import org.agentej.android.Native
 import org.agentej.android.Outputs
 import org.agentej.android.Util
@@ -59,6 +60,7 @@ private val TABS = listOf("Info", "ZIP", "Manifest", "Res", "Dex")
 @Composable
 fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> Unit) {
     val scope = rememberCoroutineScope()
+    val pm = androidx.compose.ui.platform.LocalContext.current.packageManager
     val fileName = apkPath.substringAfterLast('/')
     // next to the APK, or the workspace output folder when that is read-only (installed apps)
     val baseDir = remember(apkPath) {
@@ -89,7 +91,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
         task {
             when {
                 name.endsWith(".xml", true) -> {
-                    val xml = Native.axmlDecode(apkPath, name)
+                    val xml = AxmlText.decode(pm, apkPath, name)
                     if (xml.isNotBlank()) {
                         onView(name, xml)
                         "decoded $name"
@@ -137,7 +139,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
         when (tab) {
             2 -> if (manifest == null) {
                 busy = true
-                manifest = withContext(Dispatchers.IO) { Native.axmlDecode(apkPath, "AndroidManifest.xml") }
+                manifest = withContext(Dispatchers.IO) { AxmlText.decode(pm, apkPath, "AndroidManifest.xml") }
                 busy = false
             }
             3 -> if (resStrings.isEmpty()) {
