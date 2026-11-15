@@ -22,6 +22,7 @@ object Native {
     // filesystem
     external fun listDir(path: String): Array<String>?
     external fun statPath(path: String): String
+    external fun diskStats(path: String): String
     external fun readText(path: String, max: Int): String?
     external fun writeText(path: String, text: String): Int
     external fun mkdirs(path: String): Int
@@ -53,5 +54,6 @@ object Native {
 
     // apk
     external fun apkAnalyze(path: String): String
+    external fun apkInfo(path: String): Array<String>?
     external fun signApk(input: String, output: String): String
 }

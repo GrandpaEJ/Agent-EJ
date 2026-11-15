@@ -117,9 +117,9 @@ fun AppRoot() {
             path = route.path,
             canGoBack = stack.size > 1,
             onBack = pop,
-            onEnterDir = { push(Route.Browse(it)) },
-            onOpenArchive = { push(Route.Apk(it)) },
+            onNavigate = { push(Route.Browse(it)) },
             onOpenText = { title, body -> push(Route.Text(title, body)) },
+            onOpenApkTools = { push(Route.Apk(it)) },
             onShortcut = { push(Route.Browse(it)) }
         )
 
