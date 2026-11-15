@@ -58,6 +58,7 @@ void smali_compute_insn_offsets(smali_method_def_t *m, uint32_t *out) {
 int smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, uint16_t *out_buf, uint32_t *out_words) {
     uint32_t *insn_offsets = malloc((m->insns_count + 1) * sizeof(uint32_t));
     smali_compute_insn_offsets(m, insn_offsets);
+    int bad = 0;  /* a register-range violation was reported */
 
     uint32_t write_idx = 0;
     for (uint32_t i = 0; i < m->insns_count; i++) {
@@ -209,8 +210,9 @@ int smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, uint1
         /* Register range check against the DEX bytecode format limits. */
         if (smali_validate_insn(m, ins, vA, vB, vC,
                                 ins->fmt == 14 ? invoke_regs : NULL) != 0) {
-            free(insn_offsets);
-            return -1;
+            /* Keep checking the rest of the method so every violation is
+             * reported; the method still fails and no DEX is written. */
+            bad = 1;
         }
 
         switch (ins->fmt) {
@@ -288,5 +290,5 @@ int smali_encode_method_insns(smali_ctx_def_t *ctx, smali_method_def_t *m, uint1
     }
     free(insn_offsets);
     *out_words = write_idx;
-    return 0;
+    return bad ? -1 : 0;
 }

@@ -76,19 +76,15 @@ static const smali_fmt_limits_t k_fmt_limits[] = {
 #define F35C_MAX_COUNT 5
 #define F35C_MAX_REG   15
 
-static int insn_line(const smali_insn_t *ins) {
-    /* ins->line_number carries the nearest .line directive (-1 when the
-     * method has none); physical source lines arrive with the parser's
-     * syntax-error reporting. */
-    return ins->line_number;
-}
-
+/* ins->src_line is the physical line of the instruction in its .smali file
+ * (the caller points smali_set_source_name() at that file), so the message
+ * reads "file:line: ..." like the parser's syntax errors. */
 static int fail_op(const smali_method_def_t *m, const smali_insn_t *ins,
                    const char *fmt_name, const char *slot, uint32_t got, uint32_t max) {
-    return smali_fail("register %s out of range for %s (v%u > v%u) in %s%s at line %d [op 0x%02x]",
-                      slot, fmt_name, got, max,
-                      m->name ? m->name : "?", m->signature ? m->signature : "",
-                      insn_line(ins), ins->op);
+    return smali_fail_at((uint32_t)ins->src_line,
+                         "register %s out of range for %s (v%u > v%u) in %s%s [op 0x%02x]",
+                         slot, fmt_name, got, max,
+                         m->name ? m->name : "?", m->signature ? m->signature : "", ins->op);
 }
 
 int smali_validate_insn(const smali_method_def_t *m, const smali_insn_t *ins,
@@ -96,10 +92,10 @@ int smali_validate_insn(const smali_method_def_t *m, const smali_insn_t *ins,
                         const uint32_t *invoke_regs) {
     if (ins->fmt == FMT_35C) {
         if (ins->vA > F35C_MAX_COUNT)
-            return smali_fail("invoke argument count %u out of range for F_35c (max %d) in %s%s at line %d [op 0x%02x]",
-                              ins->vA, F35C_MAX_COUNT,
-                              m->name ? m->name : "?", m->signature ? m->signature : "",
-                              insn_line(ins), ins->op);
+            return smali_fail_at((uint32_t)ins->src_line,
+                                 "invoke argument count %u out of range for F_35c (max %d) in %s%s [op 0x%02x]",
+                                 ins->vA, F35C_MAX_COUNT,
+                                 m->name ? m->name : "?", m->signature ? m->signature : "", ins->op);
         if (!invoke_regs) return 0; /* caller did not resolve; encoder always does */
         for (uint32_t i = 0; i < ins->vA && i < 5; i++) {
             if (invoke_regs[i] > F35C_MAX_REG) {

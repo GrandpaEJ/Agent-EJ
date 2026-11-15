@@ -170,6 +170,7 @@ typedef struct {
     char *descriptor;
     char *super_class;
     char *source_file;
+    char *src_path;      /* .smali file it was parsed from (diagnostics) */
     char **interfaces;
     uint32_t interface_count;
     smali_field_def_t *static_fields;

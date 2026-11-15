@@ -93,6 +93,7 @@ static void free_class(smali_class_def_t *c) {
     free(c->descriptor);
     free(c->super_class);
     free(c->source_file);
+    free(c->src_path);
     for (uint32_t i = 0; i < c->interface_count; i++) free(c->interfaces[i]);
     free(c->interfaces);
     for (uint32_t i = 0; i < c->static_field_count; i++) free_field(&c->static_fields[i]);

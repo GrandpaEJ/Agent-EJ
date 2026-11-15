@@ -1,6 +1,7 @@
 #include "smali_writer.h"
 #include "smali_code.h"
 #include "smali_debug.h"
+#include "smali_error.h"
 #include "smali_value.h"
 #include "smali_buf.h"
 #include "smali_pool.h"
@@ -247,8 +248,13 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
     uint32_t **virtual_code_offsets = malloc(class_count * sizeof(uint32_t *));
     uint32_t **direct_code_ends = malloc(class_count * sizeof(uint32_t *));
     uint32_t **virtual_code_ends = malloc(class_count * sizeof(uint32_t *));
+    /* Every class is encoded even after a failure so all register-range
+     * violations are reported in one run (and every array is allocated
+     * for the cleanup path). */
+    int code_failed = 0;
     for (uint32_t i = 0; i < class_count; i++) {
         smali_class_def_t *c = &ctx->classes[i];
+        if (c->src_path) smali_set_source_name(c->src_path);
         direct_code_offsets[i] = c->direct_method_count ? malloc(c->direct_method_count * sizeof(uint32_t)) : NULL;
         virtual_code_offsets[i] = c->virtual_method_count ? malloc(c->virtual_method_count * sizeof(uint32_t)) : NULL;
         direct_code_ends[i] = c->direct_method_count ? malloc(c->direct_method_count * sizeof(uint32_t)) : NULL;
@@ -259,7 +265,7 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
                 direct_code_ends[i][j] = b.len;
             } else if (write_code_item(ctx, &b, &c->direct_methods[j], &direct_code_offsets[i][j]) != 0) {
                 direct_code_ends[i][j] = b.len;
-                goto code_write_fail;
+                code_failed = 1;
             } else {
                 direct_code_ends[i][j] = b.len;
             }
@@ -270,12 +276,13 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
                 virtual_code_ends[i][j] = b.len;
             } else if (write_code_item(ctx, &b, &c->virtual_methods[j], &virtual_code_offsets[i][j]) != 0) {
                 virtual_code_ends[i][j] = b.len;
-                goto code_write_fail;
+                code_failed = 1;
             } else {
                 virtual_code_ends[i][j] = b.len;
             }
         }
     }
+    if (code_failed) goto code_write_fail;
     uint32_t code_section_end = 0;
     for (uint32_t i = 0; i < class_count; i++) {
         smali_class_def_t *c2 = &ctx->classes[i];

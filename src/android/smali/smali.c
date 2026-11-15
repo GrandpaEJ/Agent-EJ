@@ -53,8 +53,9 @@ int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out) {
     for (int i = 0; i < file_count; i++) {
         /* A parse error aborts the assembly: emitting a DEX that silently
          * dropped the broken file would hide the defect. */
+        int errs_before = smali_error_count();
         if (parse_smali_file_path(&ctx, files[i]) != 0) {
-            if (!smali_last_error()[0])
+            if (smali_error_count() == errs_before)
                 smali_fail("failed to parse %s", files[i]);
             ret = -1;
         }
