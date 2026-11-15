@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [New Released]
 
+## [0.14.0] - 2026-11-15
+
+### Added
+- `dex_find` (C) and `dex_search` tool: search a DEX or every classesN.dex of an APK by smali text, class, field or method name, string literal or integer constant, with package scope, case and regex; table prefilter so only candidate classes are rendered
+
+### Fixed
+- DEX→smali: `.param` uses p-registers (wide params take two) and comes right after `.registers`, before method annotations, as baksmali; decoded APKs no longer lose whole smali dirs on rebuild
+- DEX→smali: signed-shift UB in switch/array payloads and F_31i literals
+- DEX→smali: a method's owning class is passed in instead of found by scanning every class (render cost no longer grows with dex size)
+- apk_build: fails when a smali dir does not assemble instead of signing an APK with dex files missing
+- zip_open: no out-of-bounds read on small (< 64 KB) non-zip files
+
+
 ## [0.13.3] - 2026-11-15
 
 ### Fixed
