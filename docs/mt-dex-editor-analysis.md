@@ -71,7 +71,7 @@ the same workflow with its own C core. No MT code or libraries are used.
 | 1 | MultiDex picker + merged package tree (collapsed chains, C badges), tap → smali view with `# classesN.dex` | list classes of several dex at once (`dexClasses` per entry) | done |
 | 2 | Navigation outline (C/F/M, switch to S strings) + jump | parse members from the smali text | done |
 | 3 | Search tab (6 types, scope, regex, grouped results) | `dex_find` in C (prefilter, render candidates only) | done |
-| 4 | Edit + save a class → reassemble that dex → write back into APK → sign (hammer) | `smali_assemble` per dex, zip replace, sign pipeline | |
+| 4 | Edit + save a class → reassemble that dex → write back into APK → sign (hammer) | `smali_patch_dex` (render all, swap edited, assemble one dex), `apk_replace_entries`, sign pipeline → `<name>_edited.apk` | done (small dex verified; 18 MB dex untimed) |
 | 5 | Strings tab (pool list, filter, replace) | string pool iterator | |
 | 6 | History, batch ops, add/import/delete/rename class | | |
 | 7 | APK info dialog (FUNCTION/VIEW/INSTALL) | manifest + signature summary | |

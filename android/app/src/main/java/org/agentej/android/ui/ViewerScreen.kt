@@ -68,7 +68,9 @@ private const val EDIT_LIMIT = 256 * 1024
 @Composable
 fun ViewerScreen(
     title: String, body: String, source: String?, onBack: () -> Unit,
-    focusLine: Int = -1, focusText: String? = null
+    focusLine: Int = -1, focusText: String? = null,
+    /** Saves the edited text somewhere other than [source]; returns an error, or null when saved. */
+    onSave: (suspend (String) -> String?)? = null
 ) {
     val scope = rememberCoroutineScope()
     val clip = LocalClipboardManager.current
@@ -92,7 +94,7 @@ fun ViewerScreen(
     val strings = remember(lines, lang) { if (lang == Lang.SMALI) smaliStrings(lines) else emptyList() }
     val list = rememberLazyListState()
     val dirty = editing && draft != text
-    val canEdit = source != null && text.length <= EDIT_LIMIT
+    val canEdit = (source != null || onSave != null) && text.length <= EDIT_LIMIT
 
     /* a search-hit highlight stays until the user's own find replaces it */
     var focusPinned by remember { mutableStateOf(focusLine >= 0) }
@@ -122,6 +124,12 @@ fun ViewerScreen(
     }
 
     fun save() = scope.launch {
+        if (onSave != null) {
+            val err = onSave(draft)
+            if (err == null) { text = draft; editing = false; snack.showSnackbar("Saved · compile with the hammer in the Dex Editor") }
+            else snack.showSnackbar(err)
+            return@launch
+        }
         val rc = withContext(Dispatchers.IO) { Native.writeText(source!!, draft) }
         if (rc == 0) {
             text = draft
@@ -165,7 +173,7 @@ fun ViewerScreen(
                             })
                             DropdownMenuItem(text = { Text("Larger text") }, enabled = font < 20f, onClick = { font += 1f })
                             DropdownMenuItem(text = { Text("Smaller text") }, enabled = font > 8f, onClick = { font -= 1f })
-                            if (source == null) DropdownMenuItem(
+                            if (source == null && onSave == null) DropdownMenuItem(
                                 text = { Text("Read-only (decoded)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                 enabled = false, onClick = {}
                             )

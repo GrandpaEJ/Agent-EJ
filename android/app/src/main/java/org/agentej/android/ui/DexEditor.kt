@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -183,6 +184,12 @@ class DexEditorState(val src: DexSource) {
     var tab by mutableStateOf(0)
     internal var search by mutableStateOf<SearchResult?>(null)
     var lastSpec = SearchSpec("")
+    /** Edited classes (full editor text) waiting for the hammer; compiles start from the original. */
+    internal val edits = mutableStateMapOf<DexCls, String>()
+    /** Bumped on every edit; equal to [builtGen] once the last compile included all edits. */
+    var editGen by mutableStateOf(0)
+    var builtGen by mutableStateOf(0)
+    val uncompiled get() = edits.isNotEmpty() && editGen != builtGen
     private var handle = 0L
     private var handleDex = -1
 
@@ -220,7 +227,10 @@ class DexEditorState(val src: DexSource) {
  * dex of the last opened class parsed, so RAM stays at one dex.
  */
 @Composable
-fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (title: String, body: String, line: Int, needle: String?) -> Unit) {
+fun DexEditorScreen(
+    state: DexEditorState, onBack: () -> Unit,
+    onView: (title: String, body: String, line: Int, needle: String?, onSave: suspend (String) -> String?) -> Unit
+) {
     val src = state.src
     val scope = rememberCoroutineScope()
     LaunchedEffect(state) { state.load() }
@@ -239,10 +249,14 @@ fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (title: S
         if (busy) return
         busy = true
         scope.launch {
-            val text = withContext(Dispatchers.IO) { state.smali(c) }
-            busy = false
             /* two header lines ("# classesN.dex", blank) sit above the smali */
-            onView("${c.simple}.smali", "# ${src.label(c.dex)}\n\n$text", if (line < 0) -1 else line + 2, needle)
+            val body = state.edits[c] ?: "# ${src.label(c.dex)}\n\n" + withContext(Dispatchers.IO) { state.smali(c) }
+            busy = false
+            onView("${c.simple}.smali", body, if (line < 0) -1 else line + 2, needle) { edited ->
+                state.edits[c] = edited
+                state.editGen++
+                null
+            }
         }
     }
     fun runSearchNow(spec: SearchSpec) {
@@ -261,6 +275,33 @@ fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (title: S
         val needle = state.search?.spec?.let { sp -> hitRange(h.text, sp)?.let { h.text.substring(it) } }
         open(h.cls, h.line, needle)
     }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var saved by remember { mutableStateOf<DexSaveResult?>(null) }
+    var askDiscard by remember { mutableStateOf(false) }
+    fun compile(thenExit: Boolean = false) {
+        if (busy) return
+        busy = true
+        searching = "Compiling ${state.edits.size} edited class${if (state.edits.size == 1) "" else "es"}…"
+        val gen = state.editGen
+        scope.launch {
+            val r = compileEdits(state)
+            busy = false
+            searching = null
+            if (r.ok) state.builtGen = gen
+            if (r.ok && thenExit) onBack() else saved = r
+        }
+    }
+    val leave = { if (state.uncompiled) askDiscard = true else onBack() }
+    androidx.activity.compose.BackHandler(enabled = state.uncompiled && state.query == null && state.tab == 0) { askDiscard = true }
+    saved?.let { r ->
+        DexSaveDialog(r, onInstall = if (r.out.endsWith(".apk")) ({ saved = null; org.agentej.android.External.install(context, r.out) }) else null) { saved = null }
+    }
+    if (askDiscard) DexDiscardDialog(
+        state.edits.size,
+        onCompile = { askDiscard = false; compile(thenExit = true) },
+        onDiscard = { askDiscard = false; onBack() },
+        onDismiss = { askDiscard = false }
+    )
     var query by state::query
     var expanded by state::expanded
     /* Back closes the class finder before it leaves the editor */
@@ -269,11 +310,17 @@ fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (title: S
     androidx.activity.compose.BackHandler(enabled = query == null && state.tab == 1 && searching == null) { state.tab = 0 }
     if (askSearch) DexSearchDialog(state.lastSpec, onSearch = ::runSearchNow, onDismiss = { askSearch = false })
 
-    val subtitle = classes?.let { "${it.size} classes · ${src.entries.size} dex" } ?: "Reading…"
+    val subtitle = classes?.let {
+        "${it.size} classes · ${src.entries.size} dex" + if (state.edits.isNotEmpty()) " · ${state.edits.size} edited" else ""
+    } ?: "Reading…"
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
         EjTopBar("Dex Editor", subtitle, leading = {
-            IconBtn(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+            IconBtn(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = leave)
         }) {
+            if (state.edits.isNotEmpty()) IconBtn(
+                EjIcons.Hammer, "Compile", enabled = !busy,
+                tint = if (state.uncompiled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            ) { compile() }
             if (state.tab == 0) {
                 if (query == null) IconBtn(Icons.Filled.Search, "Find class") { query = "" }
                 else IconBtn(Icons.Filled.Close, "Close find") { query = null }
