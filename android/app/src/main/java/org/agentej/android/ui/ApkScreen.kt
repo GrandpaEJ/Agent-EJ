@@ -47,7 +47,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.agentej.android.Native
+import org.agentej.android.Outputs
 import org.agentej.android.Util
+import org.agentej.android.Workspace
 
 private data class ZipRow(val name: String, val size: Long, val compressed: Boolean)
 
@@ -58,7 +60,10 @@ private val TABS = listOf("Info", "ZIP", "Manifest", "Res", "Dex")
 fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> Unit) {
     val scope = rememberCoroutineScope()
     val fileName = apkPath.substringAfterLast('/')
-    val baseDir = apkPath.substringBeforeLast('/', "/sdcard")
+    // next to the APK, or the workspace output folder when that is read-only (installed apps)
+    val baseDir = remember(apkPath) {
+        apkPath.substringBeforeLast('/', "/sdcard").takeIf { java.io.File(it).canWrite() } ?: Workspace.output
+    }
     val baseName = fileName.substringBeforeLast('.')
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -178,14 +183,14 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                     }) { Text("Extract", fontSize = 11.sp) }
                     TextButton(enabled = !busy, onClick = {
                         task {
-                            val out = Util.join(baseDir, "${baseName}_signed.apk")
+                            val out = Outputs.beside(apkPath, "${baseName}_signed.apk")
                             Util.parseRc(Native.signApk(apkPath, out)).toString()
                         }
                     }) { Text("Sign", fontSize = 11.sp) }
                     TextButton(enabled = !busy, onClick = {
                         task {
                             val dir = Util.join(baseDir, "${baseName}_unpacked")
-                            val out = Util.join(baseDir, "${baseName}_repacked.apk")
+                            val out = Outputs.beside(apkPath, "${baseName}_repacked.apk")
                             val rc = Native.packDir(dir, out, true)
                             if (rc == 0) "repacked + signed → ${baseName}_repacked.apk" else "repack failed rc=$rc"
                         }

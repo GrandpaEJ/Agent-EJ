@@ -42,7 +42,7 @@ object Tools {
         fun rc(text: String) = Util.parseRc(text)
         fun int(code: Int, ok: String, bad: String) = Rc(code, if (code == 0) ok else bad)
         return when (act) {
-            Act.DECODE -> Outputs.beside(p, "${b}_src").let { JobResult(rc(Native.apkDecode(p, it)), it) }
+            Act.DECODE -> Outputs.inWorkspace(Workspace.projects, "${b}_src").let { JobResult(rc(Native.apkDecode(p, it)), it) }
             Act.SIGN -> Outputs.beside(p, "${b}_signed.apk").let { JobResult(rc(Native.signApk(p, it)), it) }
             Act.REPAIR_APK -> Outputs.beside(p, "${b}_repaired.apk").let { JobResult(rc(Native.apkRepair(p, it)), it) }
             Act.SIGKILL -> Outputs.beside(p, "${b}_kill.apk").let { JobResult(rc(Native.sigKill(p, it)), it) }

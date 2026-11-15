@@ -103,7 +103,14 @@ object Outputs {
     fun base(path: String) = path.trimEnd('/').substringAfterLast('/').substringBeforeLast('.')
         .ifEmpty { path.trimEnd('/').substringAfterLast('/') }
 
-    fun beside(path: String, name: String) = free(Util.join(Util.parent(path), name))
+    /** Next to the source; in the workspace's output folder when that folder is read-only (e.g. /data/app). */
+    fun beside(path: String, name: String): String {
+        val dir = Util.parent(path)
+        return free(Util.join(if (java.io.File(dir).canWrite()) dir else Workspace.output, name))
+    }
+
+    /** In one of the workspace folders, created on demand. */
+    fun inWorkspace(dir: String, name: String) = java.io.File(dir).mkdirs().let { free(Util.join(dir, name)) }
 
     /** "x.apk" -> "x (2).apk" until the name is unused. */
     fun free(path: String): String {
@@ -118,6 +125,18 @@ object Outputs {
         return path
     }
 
+}
+
+/** EJ's own folder on shared storage, like MT's /sdcard/MT2: decoded projects
+ * live in projects/, and output whose source folder is read-only goes to output/. */
+object Workspace {
+    val root: String by lazy { Util.join(Native.homePath(), "EJ") }
+    val projects: String get() = Util.join(root, "projects")
+    val output: String get() = Util.join(root, "output")
+
+    fun ensure() {
+        listOf(projects, output).forEach { java.io.File(it).mkdirs() }
+    }
 }
 
 /** What a folder holds: a decoded APK project, a smali tree, or anything else. */
