@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [New Released]
 
+## [0.5.0] - 2026-11-15
+
+### Added
+- Thumbnails for images (incl. inside archives), APK icons, video frames, audio covers and PDF pages; grid view; memory- and disk-bounded thumbnail cache
+
+
 ## [0.4.0] - 2026-11-15
 
 ### Added
