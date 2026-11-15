@@ -52,6 +52,7 @@ import org.agentej.android.ui.AgentXTheme
 import org.agentej.android.ui.ApkScreen
 import org.agentej.android.ui.Commander
 import org.agentej.android.ui.DexEditorScreen
+import org.agentej.android.ui.DexEditorState
 import org.agentej.android.ui.DexSource
 import org.agentej.android.ui.DrawerContent
 import org.agentej.android.ui.HexScreen
@@ -66,7 +67,7 @@ sealed class Route {
     data class Text(val title: String, val body: String, val source: String? = null) : Route()
     data class Hex(val target: Target) : Route()
     data class Image(val target: Target) : Route()
-    data class Dex(val src: DexSource) : Route()
+    class Dex(src: DexSource) : Route() { val state = DexEditorState(src) }
 }
 
 /** A back-stack slot; [id] keys its saved UI state (scroll position, tabs). */
@@ -152,7 +153,12 @@ private fun Shell() {
     /** Viewer/tool screens stacked over the panes; empty = the panes are showing. */
     val overlays = remember { mutableStateListOf<Entry>() }
     val push: (Route) -> Unit = { overlays.add(Entry(newId(), it)) }
-    val pop: () -> Unit = { if (overlays.isNotEmpty()) saver.removeState(overlays.removeAt(overlays.lastIndex).id) }
+    val pop: () -> Unit = {
+        if (overlays.isNotEmpty()) overlays.removeAt(overlays.lastIndex).let { e ->
+            (e.route as? Route.Dex)?.state?.close()
+            saver.removeState(e.id)
+        }
+    }
 
     LaunchedEffect(panes[0].path, panes[1].path) { prefs.savePanes(panes[0].path, panes[1].path) }
 
@@ -167,7 +173,7 @@ private fun Shell() {
         drawerContent = {
             DrawerContent(current = panes[active].path, prefs = prefs, onOpen = { path ->
                 scope.launch { drawer.close() }
-                overlays.forEach { saver.removeState(it.id) }
+                overlays.forEach { (it.route as? Route.Dex)?.state?.close(); saver.removeState(it.id) }
                 overlays.clear()
                 panes[active].open(path)
             })
@@ -188,7 +194,7 @@ private fun Shell() {
                 is Route.Text -> ViewerScreen(route.title, route.body, route.source, onBack = pop)
                 is Route.Hex -> HexScreen(route.target, onBack = pop)
                 is Route.Image -> ImageScreen(route.target, onBack = pop)
-                is Route.Dex -> DexEditorScreen(route.src, onBack = pop, onView = { t, b -> push(Route.Text(t, b)) })
+                is Route.Dex -> DexEditorScreen(route.state, onBack = pop, onView = { t, b -> push(Route.Text(t, b)) })
             }
         }
     }

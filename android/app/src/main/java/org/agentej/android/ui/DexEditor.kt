@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -32,17 +34,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,8 +52,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.agentej.android.Native
 import java.util.Locale
@@ -66,13 +66,13 @@ object DexFiles {
 
     /** Root classes*.dex of an APK/zip, in load order (classes, classes2, ...). */
     fun entries(archive: String): List<String> =
-        (Native.zipEntries(archive) ?: emptyArray()).filter { ROOT_DEX.matches(it) }
+        (Native.zipEntries(archive) ?: emptyArray()).map { it.substringBefore('\t') }.filter { ROOT_DEX.matches(it) }
             .sortedBy { ROOT_DEX.matchEntire(it)!!.groupValues[1].ifEmpty { "1" }.toInt() }
 
     fun isRootDex(entry: String?) = entry != null && ROOT_DEX.matches(entry)
 }
 
-private class DexCls(val dex: Int, val index: Int, val pkg: String, val simple: String) {
+internal class DexCls(val dex: Int, val index: Int, val pkg: String, val simple: String) {
     val full get() = if (pkg.isEmpty()) simple else "$pkg.$simple"
 }
 
@@ -168,15 +168,22 @@ fun MultiDexDialog(entries: List<String>, checked: String?, onOpen: (List<String
 }
 
 /**
- * Dex editor over several dex at once: one merged package tree (MT "Dex Editor plus"
- * explorer). Classes render on tap through a native session that keeps only the
- * dex of the last opened class parsed, so RAM stays at one dex.
+ * Everything the dex editor keeps while it is on the route stack: survives opening a
+ * class (which takes the editor out of composition) and is [close]d when popped.
+ * Holds one native dex session at a time — the dex of the last opened class.
  */
-@Composable
-fun DexEditorScreen(src: DexSource, onBack: () -> Unit, onView: (String, String) -> Unit) {
-    val scope = rememberCoroutineScope()
-    val classes by produceState<List<DexCls>?>(null, src) {
-        value = withContext(Dispatchers.IO) {
+class DexEditorState(val src: DexSource) {
+    internal var classes by mutableStateOf<List<DexCls>?>(null)
+    var expanded by mutableStateOf(setOf<String>())
+    var query by mutableStateOf<String?>(null)
+    val treeList = LazyListState()
+    val findList = LazyListState()
+    private var handle = 0L
+    private var handleDex = -1
+
+    internal suspend fun load() {
+        if (classes != null) return
+        classes = withContext(Dispatchers.IO) {
             src.entries.flatMapIndexed { dex, entry ->
                 (Native.dexClasses(src.archive, entry) ?: emptyArray()).mapIndexed { i, d ->
                     val dotted = d.removePrefix("L").removeSuffix(";").replace('/', '.')
@@ -185,40 +192,54 @@ fun DexEditorScreen(src: DexSource, onBack: () -> Unit, onView: (String, String)
             }
         }
     }
+
+    /** Blocking; call off the main thread. */
+    @Synchronized internal fun smali(c: DexCls): String {
+        if (handleDex != c.dex) {
+            if (handle != 0L) Native.dexClose(handle)
+            handle = Native.dexOpen(src.archive, src.entries[c.dex])
+            handleDex = c.dex
+        }
+        return if (handle == 0L) "" else Native.dexClassSmali(handle, c.index)
+    }
+
+    @Synchronized fun close() {
+        if (handle != 0L) Native.dexClose(handle)
+        handle = 0L; handleDex = -1
+    }
+}
+
+/**
+ * Dex editor over several dex at once: one merged package tree (MT "Dex Editor plus"
+ * explorer). Classes render on tap through a native session that keeps only the
+ * dex of the last opened class parsed, so RAM stays at one dex.
+ */
+@Composable
+fun DexEditorScreen(state: DexEditorState, onBack: () -> Unit, onView: (String, String) -> Unit) {
+    val src = state.src
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(state) { state.load() }
+    val classes = state.classes
     val tree = remember(classes) { classes?.let { buildTree(it) } }
-    var expanded by remember { mutableStateOf(setOf<String>()) }
-    val rows = remember(tree, expanded) { tree?.let { flatten(it, expanded) } ?: emptyList() }
-    var query by remember { mutableStateOf<String?>(null) }
-    val hits = remember(classes, query) {
-        val q = query?.trim()?.lowercase(Locale.US).orEmpty()
+    val rows = remember(tree, state.expanded) { tree?.let { flatten(it, state.expanded) } ?: emptyList() }
+    val hits = remember(classes, state.query) {
+        val q = state.query?.trim()?.lowercase(Locale.US).orEmpty()
         if (q.isEmpty()) null else classes.orEmpty().filter { q in it.full.lowercase(Locale.US) }.take(2000)
     }
     var busy by remember { mutableStateOf(false) }
-
-    /* one open dex session at a time */
-    val lock = remember { Mutex() }
-    val session = remember { longArrayOf(0L, -1L) } /* handle, dex index */
-    DisposableEffect(src) {
-        onDispose { if (session[0] != 0L) Native.dexClose(session[0]); session[0] = 0L; session[1] = -1L }
-    }
     fun open(c: DexCls) {
         if (busy) return
         busy = true
         scope.launch {
-            val text = withContext(Dispatchers.IO) {
-                lock.withLock {
-                    if (session[1] != c.dex.toLong()) {
-                        if (session[0] != 0L) Native.dexClose(session[0])
-                        session[0] = Native.dexOpen(src.archive, src.entries[c.dex])
-                        session[1] = c.dex.toLong()
-                    }
-                    if (session[0] == 0L) "" else Native.dexClassSmali(session[0], c.index)
-                }
-            }
+            val text = withContext(Dispatchers.IO) { state.smali(c) }
             busy = false
             onView("${c.simple}.smali", "# ${src.label(c.dex)}\n\n$text")
         }
     }
+    var query by state::query
+    var expanded by state::expanded
+    /* Back closes the class finder before it leaves the editor */
+    androidx.activity.compose.BackHandler(enabled = query != null) { query = null }
 
     val subtitle = classes?.let { "${it.size} classes · ${src.entries.size} dex" } ?: "Reading…"
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
@@ -229,6 +250,8 @@ fun DexEditorScreen(src: DexSource, onBack: () -> Unit, onView: (String, String)
             else IconBtn(Icons.Filled.Close, "Close find") { query = null }
         }
         if (query != null) {
+            val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
             TextField(
                 value = query!!, onValueChange = { query = it }, singleLine = true,
                 placeholder = { Text("Class name", fontSize = 14.sp) },
@@ -237,7 +260,7 @@ fun DexEditorScreen(src: DexSource, onBack: () -> Unit, onView: (String, String)
                     unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().focusRequester(focus)
             )
         }
         Box(Modifier.fillMaxWidth().height(2.dp)) { if (busy) LinearProgressIndicator(Modifier.fillMaxSize()) }
@@ -245,10 +268,10 @@ fun DexEditorScreen(src: DexSource, onBack: () -> Unit, onView: (String, String)
         when {
             classes == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             classes!!.isEmpty() -> EmptyState("No classes", "None of the chosen files is a readable DEX.")
-            hits != null -> LazyColumn(Modifier.fillMaxSize()) {
+            hits != null -> LazyColumn(Modifier.fillMaxSize(), state = state.findList) {
                 items(hits) { c -> ClassRow(c.simple, c.pkg, 0) { open(c) } }
             }
-            else -> LazyColumn(Modifier.fillMaxSize()) {
+            else -> LazyColumn(Modifier.fillMaxSize(), state = state.treeList) {
                 items(rows, key = { r -> if (r is TreeRow.Pkg) "p:${r.node.path}" else (r as TreeRow.Cls).let { "c:${it.c.dex}:${it.c.index}" } }) { r ->
                     when (r) {
                         is TreeRow.Pkg -> PkgRow(r.node.label, r.depth, r.open) {
@@ -287,7 +310,7 @@ private fun PkgRow(label: String, depth: Int, open: Boolean, onClick: () -> Unit
 @Composable
 private fun ClassRow(name: String, pkg: String?, depth: Int, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(if (pkg != null) 46.dp else 40.dp).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().heightIn(min = if (pkg != null) 46.dp else 40.dp).clickable(onClick = onClick)
             .padding(start = 26.dp + ROW_INDENT * depth, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -297,7 +320,9 @@ private fun ClassRow(name: String, pkg: String?, depth: Int, onClick: () -> Unit
         ) { Text("C", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
         Spacer(Modifier.width(10.dp))
         Column {
-            Text(name, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
+            /* long synthetic names ($lambda-1$1) wrap to a second line, as in MT */
+            Text(name, fontSize = 14.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(vertical = 4.dp))
             if (!pkg.isNullOrEmpty()) Text(pkg, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
