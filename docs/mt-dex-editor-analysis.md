@@ -73,5 +73,5 @@ the same workflow with its own C core. No MT code or libraries are used.
 | 3 | Search tab (6 types, scope, regex, grouped results) | `dex_find` in C (prefilter, render candidates only) | done |
 | 4 | Edit + save a class → reassemble that dex → write back into APK → sign (hammer) | `smali_patch_dex` (render all, swap edited, assemble one dex), `apk_replace_entries`, sign pipeline → `<name>_edited.apk` | done (small dex verified; 18 MB dex untimed) |
 | 5 | Strings tab (pool list, filter, replace) | `dex_string_count`/`dex_string_at`, `dexStrings`; find uses via `dex_find`; replace rewrites literals into editor edits | done (phone: filter, copy, find uses, replace → hammer verified) |
-| 6 | History, batch ops, add/import/delete/rename class | | |
+| 6 | History, batch ops, add/import/delete/rename class | `smali_rename` (class/package descriptors over all classes), deletes = skipped class with no text in `smali_patch_dex`; History tab; long-press menu on class/package (copy, add, import .smali, rename, delete) | done (phone: rename, delete, add, history → hammer verified; import untested). MT's multi-select batch mode not built — package rename/delete cover the batch cases |
 | 7 | APK info dialog (FUNCTION/VIEW/INSTALL) | manifest + signature summary | |
