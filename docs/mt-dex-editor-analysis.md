@@ -57,8 +57,9 @@ the same workflow with its own C core. No MT code or libraries are used.
 - Toolbar: compass (Navigation) · undo · redo · save · pencil (edit) · ⋮.
 - Symbol key row above the keyboard: `→ / + - * = <`.
 - **Navigation** dialog: outline of the class — C (class), F (field, orange),
-  M (method, red) with descriptor, filterable; `SWITCH` flips to saved
-  snippets (S); `PREFERENCES`.
+  M (method, red) with descriptor, filterable; `SWITCH` flips to the
+  class's string constants (S, green — the `const-string` values, e.g.
+  `getAssets(...)` in MainActivity.onCreate); `PREFERENCES`.
 - ⋮: Search · Smali to Java · Instruction query · Previous/Next position ·
   Jump to line · Soft wrap ☑ · Read-only ☐ · Smooth mode ☐ ·
   Instruction completion ☑ · Export · Preferences · Close.
@@ -67,8 +68,8 @@ the same workflow with its own C core. No MT code or libraries are used.
 
 | # | Feature | Core / JNI need | Status |
 |---|---------|-----------------|--------|
-| 1 | MultiDex picker + merged package tree (collapsed chains, C badges), tap → smali view with `# classesN.dex` | list classes of several dex at once (`dexClasses` per entry) | next |
-| 2 | Navigation outline (C/F/M) + jump | parse members from the smali text | |
+| 1 | MultiDex picker + merged package tree (collapsed chains, C badges), tap → smali view with `# classesN.dex` | list classes of several dex at once (`dexClasses` per entry) | done |
+| 2 | Navigation outline (C/F/M, switch to S strings) + jump | parse members from the smali text | done |
 | 3 | Search tab (6 types, scope, regex, grouped results) | search over class smali / pools in C | |
 | 4 | Edit + save a class → reassemble that dex → write back into APK → sign (hammer) | `smali_assemble` per dex, zip replace, sign pipeline | |
 | 5 | Strings tab (pool list, filter, replace) | string pool iterator | |

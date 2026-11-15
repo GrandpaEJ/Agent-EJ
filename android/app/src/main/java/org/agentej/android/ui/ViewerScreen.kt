@@ -84,6 +84,9 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
     var draft by remember { mutableStateOf("") }
     var confirmDiscard by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var navOpen by remember { mutableStateOf(false) }
+    val outline = remember(lines, lang) { if (lang == Lang.SMALI) smaliOutline(lines) else emptyList() }
+    val strings = remember(lines, lang) { if (lang == Lang.SMALI) smaliStrings(lines) else emptyList() }
     val list = rememberLazyListState()
     val dirty = editing && draft != text
     val canEdit = source != null && text.length <= EDIT_LIMIT
@@ -129,6 +132,7 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
                 if (editing) {
                     IconBtn(EjIcons.Save, "Save", enabled = dirty) { save() }
                 } else {
+                    if (outline.isNotEmpty()) IconBtn(EjIcons.Compass, "Navigation") { navOpen = true }
                     IconBtn(Icons.Default.Search, "Find") { searching = !searching; if (!searching) query = "" }
                     IconBtn(EjIcons.Wrap, if (wrap) "Turn off wrap" else "Wrap lines",
                         tint = if (wrap) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) { wrap = !wrap }
@@ -184,6 +188,15 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
         }
         SnackbarHost(snack, Modifier.align(Alignment.BottomCenter))
     }
+
+    if (navOpen) NavigationDialog(outline, strings, onDismiss = { navOpen = false }, onPick = { it ->
+        navOpen = false
+        /* highlight the member name like a find hit and bring its line near the top */
+        val len = if (it.kind == 'S') it.name.length + 2 else it.name.length
+        matches = listOf(Match(it.line, it.col, it.col + len))
+        active = 0
+        scope.launch { list.scrollToItem((it.line - 4).coerceAtLeast(0)) }
+    })
 
     if (confirmDiscard) AlertDialog(
         onDismissRequest = { confirmDiscard = false },
