@@ -109,9 +109,16 @@ int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out);
  * indices in skip[], whose edited text is texts[] (n_texts entries; a text
  * whose class is new to the dex adds it). Writes out_dex. Returns 0, -1 on a
  * smali error (reason in smali_last_error()), -2 when the result no longer
- * fits one dex. */
+ * fits one dex. A skipped index with no text deletes that class. The
+ * n_ren renames (smali_rename) apply to every class, rendered or edited. */
 int smali_patch_dex(const uint8_t *dex, size_t len, const uint32_t *skip, int n_skip,
-                    const char *const *texts, int n_texts, const char *out_dex);
+                    const char *const *texts, int n_texts, const char *const *ren_from,
+                    const char *const *ren_to, int n_ren, const char *out_dex);
+/* Class/package rename over smali text, applied in order. A class entry is a
+ * descriptor ("La/b/C;": matches "La/b/C" followed by ';' or '<'); a package
+ * entry ends in '/' ("La/b/": a prefix, so sub-packages move too). Returns a
+ * malloc'd copy of text with every match rewritten, NULL when out of memory. */
+char *smali_rename(const char *text, const char *const *from, const char *const *to, int n);
 const char *smali_last_error(void);
 
 // Smali flow graph
