@@ -22,7 +22,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -101,23 +106,38 @@ fun tileColor(name: String, isDir: Boolean): Color {
     }
 }
 
-/** MT-style 26 dp type square: folder glyph or a 3-letter extension code. */
+/**
+ * MT-style type square: a real thumbnail when [thumb] is loaded, otherwise the
+ * folder glyph or a 3-letter extension code on the type colour.
+ */
 @Composable
-fun FileTile(name: String, isDir: Boolean, selected: Boolean = false) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary else tileColor(name, isDir)
+fun FileTile(
+    name: String,
+    isDir: Boolean,
+    selected: Boolean = false,
+    thumb: ImageBitmap? = null,
+    size: Dp = 28.dp
+) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary
+    else if (thumb != null) MaterialTheme.colorScheme.surfaceContainerHigh else tileColor(name, isDir)
+    val glyph = (size * 0.62f).coerceAtMost(40.dp)
     Box(
-        Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)).background(bg),
+        Modifier.size(size).clip(RoundedCornerShape(if (size > 40.dp) 8.dp else 6.dp)).background(bg),
         contentAlignment = Alignment.Center
     ) {
         when {
             selected -> Icon(
                 Icons.Default.Check, null,
-                tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp)
+                tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(glyph)
             )
-            isDir -> Icon(EjIcons.Folder, null, tint = Ej.colors.tileFolder, modifier = Modifier.size(18.dp))
+            thumb != null -> Image(
+                thumb, contentDescription = null, contentScale = ContentScale.Crop,
+                filterQuality = FilterQuality.Medium, modifier = Modifier.fillMaxSize()
+            )
+            isDir -> Icon(EjIcons.Folder, null, tint = Ej.colors.tileFolder, modifier = Modifier.size(glyph))
             else -> Text(
                 Util.shortCode(name, false),
-                fontSize = 9.sp,
+                fontSize = if (size > 40.dp) 14.sp else if (size > 30.dp) 11.sp else 9.sp,
                 fontWeight = FontWeight.Bold,
                 color = Ej.colors.tileGlyph
             )

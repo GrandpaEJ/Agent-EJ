@@ -96,6 +96,14 @@ fun BrowseBar(st: BrowserState, prefs: Prefs, nav: BrowserNav, shownCount: Int, 
                     text = { Text(if (prefs.isBookmarked(st.path)) "Remove bookmark" else "Bookmark this folder") },
                     onClick = { prefs.toggleBookmark(st.path); moreOpen = false }
                 )
+                DropdownMenuItem(
+                    text = { Text(if (prefs.grid) "List view" else "Grid view") },
+                    onClick = { prefs.toggleGrid(); moreOpen = false }
+                )
+                DropdownMenuItem(
+                    text = { Text(if (prefs.thumbs) "Hide thumbnails" else "Show thumbnails") },
+                    onClick = { prefs.toggleThumbs(); moreOpen = false }
+                )
                 DropdownMenuItem(text = { Text("Refresh") }, onClick = { onRefresh(); moreOpen = false })
                 DropdownMenuItem(
                     text = { Text("Select all") },

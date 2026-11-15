@@ -19,6 +19,10 @@ class Prefs(context: Context) {
         private set
     var showHidden by mutableStateOf(sp.getBoolean("hidden", false))
         private set
+    var thumbs by mutableStateOf(sp.getBoolean("thumbs", true))
+        private set
+    var grid by mutableStateOf(sp.getBoolean("grid", false))
+        private set
     var bookmarks by mutableStateOf(
         sp.getString("bookmarks", null)?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
     )
@@ -33,6 +37,16 @@ class Prefs(context: Context) {
     fun toggleHidden() {
         showHidden = !showHidden
         sp.edit().putBoolean("hidden", showHidden).apply()
+    }
+
+    fun toggleThumbs() {
+        thumbs = !thumbs
+        sp.edit().putBoolean("thumbs", thumbs).apply()
+    }
+
+    fun toggleGrid() {
+        grid = !grid
+        sp.edit().putBoolean("grid", grid).apply()
     }
 
     fun toggleBookmark(path: String) {

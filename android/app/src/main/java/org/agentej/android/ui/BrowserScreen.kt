@@ -9,8 +9,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +56,7 @@ fun BrowserScreen(path: String, prefs: Prefs, clipboard: FileClipboard, nav: Bro
     var reload by remember { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
 
     LaunchedEffect(path, reload) {
         st.loading = true
@@ -149,6 +155,23 @@ fun BrowserScreen(path: String, prefs: Prefs, clipboard: FileClipboard, nav: Bro
                             else -> "Tap + to create a file or folder."
                         }
                     )
+                    prefs.grid -> LazyVerticalGrid(
+                        GridCells.Adaptive(GRID_CELL),
+                        Modifier.fillMaxSize(),
+                        state = gridState,
+                        contentPadding = PaddingValues(6.dp)
+                    ) {
+                        gridItems(shown, key = { it.name }) { e ->
+                            FileCell(
+                                e,
+                                selected = e.name in st.selected,
+                                cutPending = clipboard.cut && st.full(e) in clipboard.paths,
+                                thumb = if (prefs.thumbs) st.thumbSpec(e) else null,
+                                onClick = { open(e) },
+                                onLongClick = { if (st.selecting) st.toggle(e) else st.menuFor = e }
+                            )
+                        }
+                    }
                     else -> LazyColumn(Modifier.fillMaxSize(), state = listState) {
                         items(shown, key = { it.name }) { e ->
                             FileRow(
@@ -156,10 +179,10 @@ fun BrowserScreen(path: String, prefs: Prefs, clipboard: FileClipboard, nav: Bro
                                 deep = st.deepHits != null,
                                 selected = e.name in st.selected,
                                 cutPending = clipboard.cut && st.full(e) in clipboard.paths,
+                                thumb = if (prefs.thumbs) st.thumbSpec(e) else null,
+                                tile = if (prefs.thumbs) 40.dp else 28.dp,
                                 onClick = { open(e) },
-                                onLongClick = {
-                                    if (st.selecting) st.toggle(e) else st.menuFor = e
-                                }
+                                onLongClick = { if (st.selecting) st.toggle(e) else st.menuFor = e }
                             )
                         }
                     }

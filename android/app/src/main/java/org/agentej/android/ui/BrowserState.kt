@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.agentej.android.FsEntry
 import org.agentej.android.Native
+import org.agentej.android.ThumbSpec
+import org.agentej.android.Thumbs
 import org.agentej.android.Util
 
 /** Navigation callbacks the browser needs from the app shell. */
@@ -52,6 +54,15 @@ class BrowserState(val path: String) {
     var dialog by mutableStateOf<BrowserDialog?>(null)
 
     fun full(e: FsEntry) = Util.join(path, e.name)
+
+    /** What to draw in this entry's tile, or null for the plain type tile. */
+    fun thumbSpec(e: FsEntry): ThumbSpec? {
+        if (e.isDir) return null
+        val kind = Thumbs.kindOf(e.name, inArchive) ?: return null
+        val split = archive
+        return if (split != null) ThumbSpec(split.first, split.second + e.name, kind, "${e.size}")
+        else ThumbSpec(full(e), null, kind, "${e.size}:${e.mtime}")
+    }
 
     fun toggle(e: FsEntry) {
         selected = if (e.name in selected) selected - e.name else selected + e.name
