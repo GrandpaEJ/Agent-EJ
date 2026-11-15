@@ -137,7 +137,7 @@ fun AppRoot() {
 private fun PermissionGate(onRequest: () -> Unit, onRecheck: () -> Unit) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(24.dp)) {
         Spacer(Modifier.height(48.dp))
-        Text("AgentX MT", fontSize = 26.sp, color = MaterialTheme.colorScheme.primary)
+        Text("EJ Manager", fontSize = 26.sp, color = MaterialTheme.colorScheme.primary)
         Text(
             "Native APK toolkit: browse, unpack, decode manifest/resources, disassemble dex to smali, repack and sign.\n\nAll I/O and every tool runs in C; this screen is only UI.",
             fontSize = 12.sp,

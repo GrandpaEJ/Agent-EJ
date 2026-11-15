@@ -1,4 +1,4 @@
-# AgentX MT — Android app
+# EJ Manager — Android app
 
 A native APK toolkit for Android, built on the Agent-X C core. Think MT Manager,
 minus the agent: **Kotlin draws the UI, C does every operation.**
