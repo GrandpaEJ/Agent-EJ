@@ -64,6 +64,19 @@ the same workflow with its own C core. No MT code or libraries are used.
   Jump to line · Soft wrap ☑ · Read-only ☐ · Smooth mode ☐ ·
   Instruction completion ☑ · Export · Preferences · Close.
 
+## APK info dialog (tap an .apk)
+
+- Two-column table: Package name · Version code · File size (`29.49M`) ·
+  Signature (`V1 + V2 + V3`) · Protection (`No Detected`) · Target / Minimum
+  SDK (`Android 16 (API 36)`) · Installed · Data directory 1 / 2 · APK path ·
+  First install · Last update · UID.
+- Tap a row: copies the value ("Text has been copied to the clipboard"),
+  except Signature → *Signature information* (File, Scheme, Status, Algorithm,
+  Public key › {algorithm, size, exponent, modulus}, Valid from/until, Owner,
+  HASH, CRC32, MD5, SHA1, SHA256, Format: Add colon / Upper case;
+  VIEW DATA = cert DER in the hex viewer, COMPARE = "Paste and Verify"), and
+  Data directory / APK path → open that folder in the pane.
+
 ## EJ Manager — implementation order (one at a time)
 
 | # | Feature | Core / JNI need | Status |
@@ -74,4 +87,4 @@ the same workflow with its own C core. No MT code or libraries are used.
 | 4 | Edit + save a class → reassemble that dex → write back into APK → sign (hammer) | `smali_patch_dex` (render all, swap edited, assemble one dex), `apk_replace_entries`, sign pipeline → `<name>_edited.apk` | done (small dex verified; 18 MB dex untimed) |
 | 5 | Strings tab (pool list, filter, replace) | `dex_string_count`/`dex_string_at`, `dexStrings`; find uses via `dex_find`; replace rewrites literals into editor edits | done (phone: filter, copy, find uses, replace → hammer verified) |
 | 6 | History, batch ops, add/import/delete/rename class | `smali_rename` (class/package descriptors over all classes), deletes = skipped class with no text in `smali_patch_dex`; History tab; long-press menu on class/package (copy, add, import .smali, rename, delete) | done (phone: rename, delete, add, history → hammer verified; import untested). MT's multi-select batch mode not built — package rename/delete cover the batch cases |
-| 7 | APK info dialog (FUNCTION/VIEW/INSTALL) | manifest + signature summary | |
+| 7 | APK info dialog (FUNCTION/VIEW/INSTALL) | `apk_sig_schemes` (signing block IDs: V1/V2/V3/V3.1/stamp); PackageManager for manifest, installed copy, signer cert; packer markers for Protection | done (phone: table matches MT on the same APK; Signature → cert info/public key/hashes/VIEW DATA hex/COMPARE; data dir and APK path rows open the folder; other rows copy) |
