@@ -238,6 +238,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                     int64_t val_int = 0;
                     double val_double = 0.0;
                     char *val_str = NULL;
+                    smali_annotation_elem_t *init_array = NULL;
                     char *eq_tok = smali_next_token(&p);
                     if (eq_tok && strcmp(eq_tok, "=") == 0) {
                         free(eq_tok);
@@ -257,6 +258,23 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                             if (*q == '\'') q++;
                             p = q;
                             val_type = VALUE_TYPE_CHAR; val_int = cv; has_init = 1;
+                        } else if (*p == '{') {
+                            /* Array initializer: previously read as the token
+                             * "{" and strtoll'd to 0, silently corrupting it. */
+                            init_array = calloc(1, sizeof(*init_array));
+                            if (!init_array || smali_parse_annot_value(&p, init_array, cur_line) != 0) {
+                                if (init_array) { smali_annot_elem_free(init_array); free(init_array); }
+                                if (!smali_last_error()[0]) smali_fail_at(cur_line, "malformed array initializer for field %s", name);
+                                free(name); free(type); free(tok); free(text_copy);
+                                return -1;
+                            }
+                            if (type && type[0] != '[') {
+                                smali_fail_at(cur_line, "array initializer on non-array field %s:%s", name, type);
+                                smali_annot_elem_free(init_array); free(init_array);
+                                free(name); free(type); free(tok); free(text_copy);
+                                return -1;
+                            }
+                            val_type = VALUE_TYPE_ARRAY; has_init = 1;
                         } else val_tok = smali_next_token(&p);
                         if (val_tok) {
                             if (strcmp(val_tok, "null") == 0) {
@@ -318,8 +336,7 @@ int parse_smali_file_content(smali_ctx_def_t *ctx, const char *text) {
                     field->value_int = val_int;
                     field->value_double = val_double;
                     field->value_str = val_str;
-                    field->array_vals = NULL;
-                    field->array_count = 0;
+                    field->init_array = init_array;
                     field->annot_count = 0;
                     
                     /* Parse optional field body for annotations */

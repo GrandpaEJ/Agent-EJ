@@ -57,6 +57,11 @@ expect_fail class_directive \
   "$(mk class_directive '.method public static m()V' '    .registers 1' '    return-void' '.end method' '.frobnicate x')" \
   "unknown directive '.frobnicate'"
 
+# issue #37: an array literal on a scalar field used to encode as int 0
+expect_fail array_on_scalar \
+  "$(mk array_on_scalar '.field public static n:I = {0x1, 0x2}')" \
+  "array initializer on non-array field n:I"
+
 # the diagnostic must carry the file name and the line of the defect
 expect_fail line_number \
   "$(mk line_number '.method public static m()V' '    .registers 1' '    return-void' '    frobnicate' '.end method')" \

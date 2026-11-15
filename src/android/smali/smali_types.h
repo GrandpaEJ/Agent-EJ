@@ -95,8 +95,9 @@ typedef struct {
     int64_t value_int;
     double value_double;
     char *value_str;
-    uint32_t *array_vals;
-    uint32_t array_count;
+    /* "= { … }" initializer (VALUE_TYPE_ARRAY); elements reuse the annotation
+     * value model so nested arrays and every scalar kind encode the same way. */
+    smali_annotation_elem_t *init_array;
     smali_annotation_t *annots;
     uint32_t annot_count;
     uint32_t annot_cap;

@@ -31,11 +31,6 @@ int smali_parse_annot_value(char **p, smali_annotation_elem_t *el, uint32_t line
             while (**p == ' ' || **p == '\t' || **p == '\r' || **p == '\n' || **p == ',') (*p)++;
             if (**p == '}' || **p == 0) { if (**p == '}') (*p)++; break; }
             if (**p == '#') { char *nl = smali_eol(*p); *p = nl ? nl + 1 : *p + strlen(*p); continue; }
-            if (el->array_count >= 256) {
-                while (**p && **p != '}') (*p)++;
-                if (**p == '}') (*p)++;
-                break;
-            }
             smali_annot_val_t *node = calloc(1, sizeof(smali_annot_val_t));
             if (!node) return -1;
             if (smali_parse_annot_value(p, &node->elem, line) != 0) {

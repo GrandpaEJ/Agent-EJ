@@ -380,6 +380,8 @@ int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
                 if (c->static_fields[j].has_init_value) {
                     smali_field_def_t *f = &c->static_fields[j];
                     switch (f->value_type) {
+                    case VALUE_TYPE_ARRAY:
+                        write_encoded_value(&b, ctx, f->init_array); break;
                     case VALUE_TYPE_NULL:
                         buf_write_u8(&b, 0x1e); break;
                     case VALUE_TYPE_BOOL:

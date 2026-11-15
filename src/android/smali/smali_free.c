@@ -80,7 +80,10 @@ static void free_field(smali_field_def_t *f) {
     free(f->name);
     free(f->type);
     free(f->value_str);
-    free(f->array_vals);
+    if (f->init_array) {
+        smali_annot_elem_free(f->init_array);
+        free(f->init_array);
+    }
     for (uint32_t i = 0; i < f->annot_count; i++) smali_annot_free(&f->annots[i]);
     free(f->annots);
 }

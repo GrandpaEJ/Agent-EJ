@@ -308,6 +308,40 @@ SMALI
     return v0
 .end method
 SMALI
+
+    # Class 7: array static-field initializers (issue #37) — scalar, string,
+    # type, nested, empty and wide arrays all go through encoded_array.
+    cat > "$d/com/test/Arrays.smali" << 'SMALI'
+.class public Lcom/test/Arrays;
+.super Ljava/lang/Object;
+
+.field public static final EMPTY:[J = {}
+.field public static final INTS:[I = {
+    0x1,
+    0x2,
+    -0x3,
+    0x7fffffff
+}
+.field public static final LONGS:[J = {
+    0x1L,
+    -0x8000000000000000L
+}
+.field public static final NESTED:[[I = {
+    {
+        0x1
+    },
+    {}
+}
+.field public static final NAMES:[Ljava/lang/String; = {
+    "alpha",
+    "\u00e9\u4e2d"
+}
+.field public static final TYPES:[Ljava/lang/Class; = {
+    Ljava/lang/String;,
+    [I
+}
+.field public static plain:I = 0x2a
+SMALI
 }
 
 # ---------- run one roundtrip ----------

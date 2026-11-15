@@ -525,6 +525,8 @@ for (uint32_t pi = 0; pi < ma[j].param_name_count && ma[j].param_annots && ma[j]
                     smali_pool_add(&ctx->strings, f->value_str);
                 else if (f->value_type == VALUE_TYPE_TYPE && f->value_str)
                     smali_pool_add(&ctx->strings, f->value_str);
+                else if (f->value_type == VALUE_TYPE_ARRAY && f->init_array)
+                    pool_add_annotation_elem(ctx, f->init_array);
                 else if (f->value_type == VALUE_TYPE_ENUM && f->value_str) {
                     /* The initializer names a field: it has to be in the field
                      * pool, otherwise the encoded value points at field 0. */
