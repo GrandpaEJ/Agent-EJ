@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [New Released]
 
+## [0.13.2] - 2026-11-15
+
+### Fixed
+- smali: register/format violations report file:line (#35); all diagnostics reported (cap 20) with recovery past broken methods, directives and files
+
+
 ## [0.13.1] - 2026-11-15
 
 ### Fixed
