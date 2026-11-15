@@ -2,6 +2,7 @@ package org.agentej.android.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,9 +74,19 @@ object DexFiles {
     fun isRootDex(entry: String?) = entry != null && ROOT_DEX.matches(entry)
 }
 
+/**
+ * One class of the editor. Identity is (dex, index), so a renamed copy still keys the same edit;
+ * classes added in the editor get indices from [NEW_CLASS] up.
+ */
 internal class DexCls(val dex: Int, val index: Int, val pkg: String, val simple: String) {
     val full get() = if (pkg.isEmpty()) simple else "$pkg.$simple"
+    val isNew get() = index >= NEW_CLASS
+    fun named(full: String) = DexCls(dex, index, full.substringBeforeLast('.', ""), full.substringAfterLast('.'))
+    override fun equals(other: Any?) = other is DexCls && other.dex == dex && other.index == index
+    override fun hashCode() = dex * 31 + index
 }
+
+internal const val NEW_CLASS = 1 shl 24
 
 /** Package node; [label] may span several segments once single-child chains are folded. */
 private class PkgNode(val label: String, val path: String, val pkgs: List<PkgNode>, val classes: List<DexCls>)
@@ -174,7 +185,8 @@ fun MultiDexDialog(entries: List<String>, checked: String?, onOpen: (List<String
  * Holds one native dex session at a time — the dex of the last opened class.
  */
 class DexEditorState(val src: DexSource) {
-    internal var classes by mutableStateOf<List<DexCls>?>(null)
+    /* referential: a renamed list equals the old one (class identity is dex+index) */
+    internal var classes by mutableStateOf<List<DexCls>?>(null, androidx.compose.runtime.referentialEqualityPolicy())
     var expanded by mutableStateOf(setOf<String>())
     var query by mutableStateOf<String?>(null)
     val treeList = LazyListState()
@@ -184,16 +196,24 @@ class DexEditorState(val src: DexSource) {
     internal var pool by mutableStateOf<List<PoolString>?>(null)
     var poolFilter by mutableStateOf("")
     val poolList = LazyListState()
-    /** 0 = Explorer, 1 = Search, 2 = Strings */
+    /** 0 = Explorer, 1 = History, 2 = Search, 3 = Strings */
     var tab by mutableStateOf(0)
     internal var search by mutableStateOf<SearchResult?>(null)
     var lastSpec = SearchSpec("")
     /** Edited classes (full editor text) waiting for the hammer; compiles start from the original. */
     internal val edits = mutableStateMapOf<DexCls, String>()
-    /** Bumped on every edit; equal to [builtGen] once the last compile included all edits. */
+    /** Original classes deleted in the editor. */
+    internal val deleted = mutableStateListOf<DexCls>()
+    /** Renames in order, as descriptors: "La/B;" for a class, "La/b/" for a package. */
+    internal val renames = mutableStateListOf<Pair<String, String>>()
+    /** Opened classes, most recent first (History tab). */
+    internal val history = mutableStateListOf<DexCls>()
+    internal var nextNew = NEW_CLASS
+    /** Bumped on every change; equal to [builtGen] once the last compile included all of them. */
     var editGen by mutableStateOf(0)
     var builtGen by mutableStateOf(0)
-    val uncompiled get() = edits.isNotEmpty() && editGen != builtGen
+    val changes get() = edits.size + deleted.size + renames.size
+    val uncompiled get() = changes > 0 && editGen != builtGen
     private var handle = 0L
     private var handleDex = -1
 
@@ -239,9 +259,9 @@ fun DexEditorScreen(
     val scope = rememberCoroutineScope()
     LaunchedEffect(state) { state.load() }
     val classes = state.classes
-    val tree = remember(classes) { classes?.let { buildTree(it) } }
+    val tree = remember(classes, state.editGen) { classes?.let { buildTree(it) } }
     val rows = remember(tree, state.expanded) { tree?.let { flatten(it, state.expanded) } ?: emptyList() }
-    val hits = remember(classes, state.query) {
+    val hits = remember(classes, state.editGen, state.query) {
         val q = state.query?.trim()?.lowercase(Locale.US).orEmpty()
         if (q.isEmpty()) null else classes.orEmpty().filter { q in it.full.lowercase(Locale.US) }.take(2000)
     }
@@ -254,8 +274,11 @@ fun DexEditorScreen(
         busy = true
         scope.launch {
             /* two header lines ("# classesN.dex", blank) sit above the smali */
-            val body = state.edits[c] ?: "# ${src.label(c.dex)}\n\n" + withContext(Dispatchers.IO) { state.smali(c) }
+            val body = state.edits[c] ?: "# ${src.label(c.dex)}\n\n" + withContext(Dispatchers.IO) { state.renamed(state.smali(c)) }
             busy = false
+            state.history.remove(c)
+            state.history.add(0, c)
+            if (state.history.size > HISTORY_MAX) state.history.removeRange(HISTORY_MAX, state.history.size)
             onView("${c.simple}.smali", body, if (line < 0) -1 else line + 2, needle) { edited ->
                 state.edits[c] = edited
                 state.editGen++
@@ -301,7 +324,7 @@ fun DexEditorScreen(
         DexSaveDialog(r, onInstall = if (r.out.endsWith(".apk")) ({ saved = null; org.agentej.android.External.install(context, r.out) }) else null) { saved = null }
     }
     if (askDiscard) DexDiscardDialog(
-        state.edits.size,
+        state.changes,
         onCompile = { askDiscard = false; compile(thenExit = true) },
         onDiscard = { askDiscard = false; onBack() },
         onDismiss = { askDiscard = false }
@@ -314,7 +337,7 @@ fun DexEditorScreen(
     androidx.activity.compose.BackHandler(enabled = query == null && state.tab != 0 && searching == null) { state.tab = 0 }
     fun toast(msg: String) = android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
     fun findUses(value: String) {
-        state.tab = 1
+        state.tab = 2
         searching = "Finding uses…"
         scope.launch {
             val r = withContext(Dispatchers.IO) { stringUses(state, value) { msg -> searching = msg } }
@@ -341,14 +364,17 @@ fun DexEditorScreen(
     }
     if (askSearch) DexSearchDialog(state.lastSpec, onSearch = ::runSearchNow, onDismiss = { askSearch = false })
 
+    var ops by remember { mutableStateOf<DexOpsTarget?>(null) }
+    ops?.let { t -> DexOpsDialogs(state, t, onCopy = ::copy, onToast = ::toast, onOpen = { open(it) }, onDone = { ops = null }) }
+
     val subtitle = classes?.let {
-        "${it.size} classes · ${src.entries.size} dex" + if (state.edits.isNotEmpty()) " · ${state.edits.size} edited" else ""
+        "${it.size} classes · ${src.entries.size} dex" + if (state.changes > 0) " · ${state.changes} changed" else ""
     } ?: "Reading…"
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
         EjTopBar("Dex Editor", subtitle, leading = {
             IconBtn(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = leave)
         }) {
-            if (state.edits.isNotEmpty()) IconBtn(
+            if (state.changes > 0) IconBtn(
                 EjIcons.Hammer, "Compile", enabled = !busy,
                 tint = if (state.uncompiled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
             ) { compile() }
@@ -377,18 +403,22 @@ fun DexEditorScreen(
         when {
             classes == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             classes!!.isEmpty() -> EmptyState("No classes", "None of the chosen files is a readable DEX.")
-            state.tab == 1 -> DexSearchPane(state, searching, onNew = { askSearch = true }, onOpen = ::openHit)
-            state.tab == 2 -> DexStringsPane(state, searching, onUses = ::findUses, onReplace = ::replace, onCopy = ::copy)
+            state.tab == 1 -> if (state.history.isEmpty()) EmptyState("No history", "Classes you open show up here.")
+                else LazyColumn(Modifier.fillMaxSize()) {
+                    items(state.history.toList()) { c -> ClassRow(c.simple, c.pkg, 0, { ops = DexOpsTarget.Cls(c) }) { open(c) } }
+                }
+            state.tab == 2 -> DexSearchPane(state, searching, onNew = { askSearch = true }, onOpen = ::openHit)
+            state.tab == 3 -> DexStringsPane(state, searching, onUses = ::findUses, onReplace = ::replace, onCopy = ::copy)
             hits != null -> LazyColumn(Modifier.fillMaxSize(), state = state.findList) {
-                items(hits) { c -> ClassRow(c.simple, c.pkg, 0) { open(c) } }
+                items(hits) { c -> ClassRow(c.simple, c.pkg, 0, { ops = DexOpsTarget.Cls(c) }) { open(c) } }
             }
             else -> LazyColumn(Modifier.fillMaxSize(), state = state.treeList) {
                 items(rows, key = { r -> if (r is TreeRow.Pkg) "p:${r.node.path}" else (r as TreeRow.Cls).let { "c:${it.c.dex}:${it.c.index}" } }) { r ->
                     when (r) {
-                        is TreeRow.Pkg -> PkgRow(r.node.label, r.depth, r.open) {
+                        is TreeRow.Pkg -> PkgRow(r.node.label, r.depth, r.open, { ops = DexOpsTarget.Pkg(r.node.path) }) {
                             expanded = if (r.open) expanded - r.node.path else expanded + r.node.path
                         }
-                        is TreeRow.Cls -> ClassRow(r.c.simple, null, r.depth) { open(r.c) }
+                        is TreeRow.Cls -> ClassRow(r.c.simple, null, r.depth, { ops = DexOpsTarget.Cls(r.c) }) { open(r.c) }
                     }
                 }
             }
@@ -402,7 +432,7 @@ private fun DexTabs(selected: Int, onSelect: (Int) -> Unit) {
     androidx.compose.material3.SecondaryTabRow(
         selectedTabIndex = selected, containerColor = MaterialTheme.colorScheme.surface
     ) {
-        listOf("EXPLORER", "SEARCH", "STRINGS").forEachIndexed { i, label ->
+        listOf("EXPLORER", "HISTORY", "SEARCH", "STRINGS").forEachIndexed { i, label ->
             androidx.compose.material3.Tab(
                 selected = selected == i, onClick = { onSelect(i) },
                 text = { Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium) },
@@ -413,11 +443,13 @@ private fun DexTabs(selected: Int, onSelect: (Int) -> Unit) {
 }
 
 private val ROW_INDENT = 18.dp
+private const val HISTORY_MAX = 100
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun PkgRow(label: String, depth: Int, open: Boolean, onClick: () -> Unit) {
+private fun PkgRow(label: String, depth: Int, open: Boolean, onLong: () -> Unit, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(40.dp).clickable(onClick = onClick).padding(start = 4.dp + ROW_INDENT * depth),
+        Modifier.fillMaxWidth().height(40.dp).combinedClickable(onClick = onClick, onLongClick = onLong).padding(start = 4.dp + ROW_INDENT * depth),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -434,10 +466,11 @@ private fun PkgRow(label: String, depth: Int, open: Boolean, onClick: () -> Unit
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ClassRow(name: String, pkg: String?, depth: Int, onClick: () -> Unit) {
+private fun ClassRow(name: String, pkg: String?, depth: Int, onLong: () -> Unit, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = if (pkg != null) 46.dp else 40.dp).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().heightIn(min = if (pkg != null) 46.dp else 40.dp).combinedClickable(onClick = onClick, onLongClick = onLong)
             .padding(start = 26.dp + ROW_INDENT * depth, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -92,7 +92,7 @@ internal fun replaceString(state: DexEditorState, old: String, new: String, prog
     var changed = 0
     classes.forEachIndexed { i, c ->
         progress("Replacing in ${c.simple} (${i + 1}/${classes.size})…")
-        val body = state.edits[c] ?: ("# ${state.src.label(c.dex)}\n\n" + state.smali(c))
+        val body = state.edits[c] ?: ("# ${state.src.label(c.dex)}\n\n" + state.renamed(state.smali(c)))
         val out = body.replace(from, to)
         if (out != body) {
             state.edits[c] = out

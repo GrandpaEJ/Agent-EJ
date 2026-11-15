@@ -29,18 +29,22 @@ internal fun dexSaveTarget(src: DexSource): String {
     return Util.join(dir, Outputs.base(src.archive) + if (bare) "_edited.dex" else "_edited.apk")
 }
 
-/** Rebuilds every dex that holds an edited class; blocking work runs on IO. */
+/** Rebuilds every dex the editor changed (all open dex when something was renamed); blocking work on IO. */
 internal suspend fun compileEdits(state: DexEditorState): DexSaveResult = withContext(Dispatchers.IO) {
     val src = state.src
-    val edits = state.edits.toList()
+    val ents = ArrayList<String>()
+    val idx = ArrayList<Int>()
+    val texts = ArrayList<String>()
+    fun add(dex: Int, i: Int, text: String) { ents += src.entries[dex]; idx += i; texts += text }
+    for ((c, text) in state.edits.toList()) add(c.dex, if (c.isNew) -1 else c.index, stripHeader(text))
+    for (c in state.deleted.toList()) add(c.dex, c.index, "")
+    val renames = state.renames.toList()
+    if (renames.isNotEmpty()) src.entries.indices.forEach { add(it, -2, "") }
     val out = dexSaveTarget(src)
     java.io.File(out).parentFile?.mkdirs()
     val res = Native.dexSave(
-        src.archive,
-        edits.map { src.entries[it.first.dex] }.toTypedArray(),
-        edits.map { it.first.index }.toIntArray(),
-        edits.map { stripHeader(it.second) }.toTypedArray(),
-        out
+        src.archive, ents.toTypedArray(), idx.toIntArray(), texts.toTypedArray(),
+        renames.map { it.first }.toTypedArray(), renames.map { it.second }.toTypedArray(), out
     )
     val rc = Util.parseRc(res)
     DexSaveResult(rc.code == 0, out, rc.detail)
@@ -65,7 +69,7 @@ internal fun DexDiscardDialog(count: Int, onCompile: () -> Unit, onDiscard: () -
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Uncompiled edits") },
-        text = { Text("$count edited class${if (count == 1) "" else "es"} not compiled into an APK yet.") },
+        text = { Text("$count change${if (count == 1) "" else "s"} not compiled into an APK yet.") },
         confirmButton = { TextButton(onClick = onCompile) { Text("Compile") } },
         dismissButton = { TextButton(onClick = onDiscard) { Text("Discard") } }
     )
