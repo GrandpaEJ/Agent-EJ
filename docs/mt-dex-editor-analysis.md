@@ -72,6 +72,6 @@ the same workflow with its own C core. No MT code or libraries are used.
 | 2 | Navigation outline (C/F/M, switch to S strings) + jump | parse members from the smali text | done |
 | 3 | Search tab (6 types, scope, regex, grouped results) | `dex_find` in C (prefilter, render candidates only) | done |
 | 4 | Edit + save a class → reassemble that dex → write back into APK → sign (hammer) | `smali_patch_dex` (render all, swap edited, assemble one dex), `apk_replace_entries`, sign pipeline → `<name>_edited.apk` | done (small dex verified; 18 MB dex untimed) |
-| 5 | Strings tab (pool list, filter, replace) | `dex_string_count`/`dex_string_at`, `dexStrings`; find uses via `dex_find`; replace rewrites literals into editor edits | built, not tested on phone |
+| 5 | Strings tab (pool list, filter, replace) | `dex_string_count`/`dex_string_at`, `dexStrings`; find uses via `dex_find`; replace rewrites literals into editor edits | done (phone: filter, copy, find uses, replace → hammer verified) |
 | 6 | History, batch ops, add/import/delete/rename class | | |
 | 7 | APK info dialog (FUNCTION/VIEW/INSTALL) | manifest + signature summary | |
