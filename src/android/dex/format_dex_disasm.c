@@ -361,7 +361,7 @@ int dex_decode_insn(const uint16_t *insns, int offset, uint32_t *out_op,
         vA = arg;
         uint32_t lo = insns[offset + 1];
         uint32_t hi = insns[offset + 2];
-        lit = (int32_t)(lo | (hi << 16));
+        lit = (int32_t)((uint32_t)lo | ((uint32_t)hi << 16));
         words = 3;
         break;
     }

@@ -180,11 +180,6 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         if (class_idx != 0xFFFFFFFF) break;
     }
 
-    /* write method-level annotations */
-    if (class_idx != 0xFFFFFFFF) {
-        smali_write_method_annot(s, ctx, &ctx->classes[class_idx], me->method_idx);
-    }
-
     /* parse debug info for .line entries and .param names */
     /* label/line tables are sized from the code length so big obfuscated methods never overflow */
     const uint32_t nl = isz + 8;
@@ -258,23 +253,36 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
         }
     }
 
-    /* emit .param directives */
+    /* emit .param directives: debug-info names are per parameter, the
+     * directive names its p-register (p0 = this for an instance method,
+     * long/double take two registers), as baksmali writes it. */
     if (param_name_count > 0) {
-        smali_sa(s, "\n");
+        smali_mproto(ctx, me->method_idx, protobuf, sizeof(protobuf));
+        const char *pt = protobuf[0] == '(' ? protobuf + 1 : protobuf;
+        uint32_t preg = (fl & 0x0008) ? 0 : 1;
         for (int pi = 0; pi < param_name_count; pi++) {
+            const char *ts = pt;
+            int wide = (*pt == 'J' || *pt == 'D');
+            while (*pt == '[') pt++;
+            if (*pt == 'L') { while (*pt && *pt != ';') pt++; }
+            if (*pt && *pt != ')') pt++;
+            int tlen = (int)(pt - ts);
             if (param_names[pi]) {
-                /* pi indexes the "in" (parameter) registers only; the
-                 * directive names the absolute register, which starts
-                 * after the method's local registers (regs - ins of them). */
-                uint32_t first_in = (uint32_t)regs - (uint32_t)ins;
                 /* The debug-info name is arbitrary MUTF-8 and may itself
                  * contain '"' or '\\' (seen in the wild from obfuscators
                  * salting debug names to break naive disassemblers) —
                  * escape it the same way every other string is escaped. */
-                smali_sf(s, "    .param p%u, \"%s\"\n", first_in + (uint32_t)pi, smali_escape_str(param_names[pi]));
+                smali_sf(s, "    .param p%u, \"%s\"    # %.*s\n", preg,
+                         smali_escape_str(param_names[pi]), tlen, ts);
                 free(param_names[pi]);
             }
+            preg += wide ? 2 : 1;
         }
+    }
+
+    /* method-level annotations follow the .param lines, as in baksmali */
+    if (class_idx != 0xFFFFFFFF) {
+        smali_write_method_annot(s, ctx, &ctx->classes[class_idx], me->method_idx);
     }
 
     /* sorted line entries by address for interpolation */
@@ -351,7 +359,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                 if (ident == 0x0100) {
                     uint16_t psize = payload[1];
                     for (int si = 0; si < (int)psize; si++) {
-                        int32_t ptarget = (int32_t)(payload[4 + si*2] | (payload[5 + si*2] << 16));
+                        int32_t ptarget = (int32_t)(payload[4 + si*2] | ((uint32_t)payload[5 + si*2] << 16));
                         uint32_t abs_t = (uint32_t)((int32_t)i2 + ptarget);
                         if (lc < nl) {
                             int dup3 = 0;
@@ -363,7 +371,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
 } else if (ident == 0x0200) {
                      uint16_t psize = payload[1];
                      for (int si = 0; si < (int)psize; si++) {
-                         int32_t ptarget = (int32_t)(payload[2 + (int)psize*2 + si*2] | (payload[3 + (int)psize*2 + si*2] << 16));
+                         int32_t ptarget = (int32_t)(payload[2 + (int)psize*2 + si*2] | ((uint32_t)payload[3 + (int)psize*2 + si*2] << 16));
                          uint32_t abs_t = (uint32_t)((int32_t)i2 + ptarget);
                          if (lc < nl) {
                              int dup3 = 0;
@@ -489,12 +497,12 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                 uint16_t ident = payload[0];
                 if (ident == 0x0100) {
                     uint16_t size = payload[1];
-                    int32_t first_key = (int32_t)(payload[2] | (payload[3] << 16));
+                    int32_t first_key = (int32_t)(payload[2] | ((uint32_t)payload[3] << 16));
                     smali_sf(s, "    :pswitch_data_%x\n", i);
                     smali_sf(s, "    .packed-switch 0x%x\n", (uint32_t)first_key);
                     int switch_off = (int)payload_srcs[pi];
                     for (int si = 0; si < (int)size; si++) {
-                        int32_t ptarget = (int32_t)(payload[4 + si*2] | (payload[5 + si*2] << 16));
+                        int32_t ptarget = (int32_t)(payload[4 + si*2] | ((uint32_t)payload[5 + si*2] << 16));
                         int abs_target = switch_off + ptarget;
                         smali_sf(s, "        :pswitch_%x\n", (uint32_t)abs_target);
                     }
@@ -510,8 +518,8 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                     smali_sa(s, "    .sparse-switch\n");
                     int switch_off = (int)payload_srcs[pi];
                     for (int si = 0; si < (int)size; si++) {
-                        int32_t key = (int32_t)(payload[2 + si*2] | (payload[3 + si*2] << 16));
-                        int32_t ptarget = (int32_t)(payload[2 + (int)size*2 + si*2] | (payload[3 + (int)size*2 + si*2] << 16));
+                        int32_t key = (int32_t)(payload[2 + si*2] | ((uint32_t)payload[3 + si*2] << 16));
+                        int32_t ptarget = (int32_t)(payload[2 + (int)size*2 + si*2] | ((uint32_t)payload[3 + (int)size*2 + si*2] << 16));
                         int abs_target = switch_off + ptarget;
                         smali_sf(s, "        0x%x -> :sswitch_%x\n", (uint32_t)key, (uint32_t)abs_target);
                     }
@@ -523,7 +531,7 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                     goto next_insn;
                 } else if (ident == 0x0300) {
                     uint16_t elem_width = payload[1];
-                    uint32_t count = payload[2] | (payload[3] << 16);
+                    uint32_t count = payload[2] | ((uint32_t)payload[3] << 16);
                     smali_sf(s, "    :array_%x\n", i);
                     smali_sf(s, "    .array-data %u\n", (unsigned)elem_width);
                     const uint8_t *array_data = (const uint8_t *)(payload + 4);
@@ -532,13 +540,13 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
                         if (elem_width == 1) {
                             val = (int32_t)(int8_t)array_data[ai];
                         } else if (elem_width == 2) {
-                            val = (int32_t)(int16_t)(array_data[ai*2] | (array_data[ai*2+1] << 8));
+                            val = (int32_t)(int16_t)(array_data[ai*2] | ((uint32_t)array_data[ai*2+1] << 8));
                         } else if (elem_width == 4) {
-                            val = (int32_t)(array_data[ai*4] | (array_data[ai*4+1] << 8) | (array_data[ai*4+2] << 16) | (array_data[ai*4+3] << 24));
+                            val = (int32_t)(array_data[ai*4] | ((uint32_t)array_data[ai*4+1] << 8) | ((uint32_t)array_data[ai*4+2] << 16) | ((uint32_t)array_data[ai*4+3] << 24));
                         } else if (elem_width == 8) {
                             int64_t v64 = 0;
                             for (int ebi = 0; ebi < 8; ebi++)
-                                v64 |= (int64_t)array_data[ai*8+ebi] << (ebi*8);
+                                v64 |= (int64_t)((uint64_t)array_data[ai*8+ebi] << (ebi*8));
                             smali_sf(s, "        0x%llxL\n", (unsigned long long)v64);
                             continue;
                         }
