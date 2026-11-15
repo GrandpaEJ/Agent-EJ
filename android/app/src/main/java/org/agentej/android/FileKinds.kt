@@ -70,7 +70,7 @@ object FileKinds {
      */
     fun actions(kind: FileKind, inArchive: Boolean, dirHint: DirHint = DirHint.PLAIN): List<Act> = when (kind) {
         FileKind.APK -> if (inArchive) listOf(Act.ARCHIVE, Act.HEX)
-            else listOf(Act.ARCHIVE, Act.INSTALL, Act.APK_TOOLS, Act.DECODE, Act.SIGN, Act.REPAIR_APK, Act.SIGKILL)
+            else listOf(Act.ARCHIVE, Act.DEX_BROWSE, Act.INSTALL, Act.APK_TOOLS, Act.DECODE, Act.SIGN, Act.REPAIR_APK, Act.SIGKILL)
         FileKind.SPLITS -> if (inArchive) listOf(Act.ARCHIVE) else listOf(Act.MERGE, Act.ARCHIVE)
         FileKind.DEX -> if (inArchive) listOf(Act.DEX_BROWSE, Act.DEX2SMALI, Act.DEX_INFO, Act.HEX)
             else listOf(Act.DEX_BROWSE, Act.DEX2SMALI, Act.DEX_REPAIR, Act.DEX_INFO, Act.HEX)

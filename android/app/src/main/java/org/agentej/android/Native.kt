@@ -59,6 +59,10 @@ object Native {
     external fun smaliAssemble(srcDir: String, outDex: String): String
     external fun dexRepair(input: String, output: String): String
     /** Whole DEX (plain file, or [entry] inside [archive]) -> one .smali per class under [outDir]. */
+    /** Dex editor session: parse once, then render classes by index. 0 = failed. */
+    external fun dexOpen(archive: String, entry: String): Long
+    external fun dexClassSmali(handle: Long, index: Int): String
+    external fun dexClose(handle: Long)
     external fun dexToSmaliDir(archive: String, entry: String?, outDir: String): String
     external fun readBytes(path: String, offset: Long, max: Int): ByteArray?
 

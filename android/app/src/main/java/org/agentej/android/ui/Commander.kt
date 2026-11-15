@@ -63,6 +63,7 @@ private sealed interface Popup {
     data class Menu(val st: BrowserState, val e: FsEntry) : Popup
     data class Type(val t: Target, val acts: List<Act>) : Popup
     data class OpenWith(val t: Target) : Popup
+    data class MultiDex(val archive: String, val entries: List<String>, val checked: String?) : Popup
 }
 
 /**
@@ -145,7 +146,17 @@ fun Commander(
             Act.TEXT, Act.AXML_VIEW, Act.DEX_INFO, Act.ARSC_STRINGS -> viewText(a, t)
             Act.HEX -> push(Route.Hex(t))
             Act.IMAGE -> push(Route.Image(t))
-            Act.DEX_BROWSE -> push(Route.Dex(t))
+            Act.DEX_BROWSE -> {
+                val arc = t.archive ?: t.path
+                if (t.kind == FileKind.APK && !t.inArchive || DexFiles.isRootDex(t.entry)) scope.launch {
+                    val all = withContext(Dispatchers.IO) { DexFiles.entries(arc) }
+                    when {
+                        all.isEmpty() -> note("No classes.dex in ${t.name}")
+                        all.size == 1 -> push(Route.Dex(DexSource(arc, all)))
+                        else -> popup = Popup.MultiDex(arc, all, t.entry)
+                    }
+                } else push(Route.Dex(DexSource(arc, listOf(t.entry ?: ""))))
+            }
             Act.APK_TOOLS -> push(Route.Apk(t.path))
             Act.INSTALL -> External.install(context, t.path)?.let { note(it) }
             Act.EXTERNAL -> external(t, null)
@@ -292,6 +303,11 @@ fun Commander(
                 bookmarked = prefs.isBookmarked(t.path)
             ), onDismiss = { if (popup === p) popup = null })
         }
+        is Popup.MultiDex -> MultiDexDialog(
+            p.entries, p.checked,
+            onOpen = { popup = null; push(Route.Dex(DexSource(p.archive, it))) },
+            onDismiss = { if (popup === p) popup = null }
+        )
         is Popup.Type -> TypeMenu(p.t, p.acts, onPick = { act(it, p.t) }, onDismiss = { if (popup === p) popup = null })
         is Popup.OpenWith -> OpenWithDialog(
             p.t, onPick = { act(it, p.t) }, onExternal = { external(p.t, it) },

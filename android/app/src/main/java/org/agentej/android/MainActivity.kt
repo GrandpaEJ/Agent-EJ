@@ -51,7 +51,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import org.agentej.android.ui.AgentXTheme
 import org.agentej.android.ui.ApkScreen
 import org.agentej.android.ui.Commander
-import org.agentej.android.ui.DexScreen
+import org.agentej.android.ui.DexEditorScreen
+import org.agentej.android.ui.DexSource
 import org.agentej.android.ui.DrawerContent
 import org.agentej.android.ui.HexScreen
 import org.agentej.android.ui.ImageScreen
@@ -65,7 +66,7 @@ sealed class Route {
     data class Text(val title: String, val body: String, val source: String? = null) : Route()
     data class Hex(val target: Target) : Route()
     data class Image(val target: Target) : Route()
-    data class Dex(val target: Target) : Route()
+    data class Dex(val src: DexSource) : Route()
 }
 
 /** A back-stack slot; [id] keys its saved UI state (scroll position, tabs). */
@@ -187,7 +188,7 @@ private fun Shell() {
                 is Route.Text -> ViewerScreen(route.title, route.body, route.source, onBack = pop)
                 is Route.Hex -> HexScreen(route.target, onBack = pop)
                 is Route.Image -> ImageScreen(route.target, onBack = pop)
-                is Route.Dex -> DexScreen(route.target, onBack = pop, onView = { t, b -> push(Route.Text(t, b)) })
+                is Route.Dex -> DexEditorScreen(route.src, onBack = pop, onView = { t, b -> push(Route.Text(t, b)) })
             }
         }
     }
