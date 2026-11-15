@@ -152,6 +152,36 @@ Every single code change, refactoring step, or feature implementation **must foc
   * **x.x.n** : [fixed] (Bug fixes and patches)
 * **Release Tags**: Every commit that updates the version inside the changelog must be tagged in git (e.g. `git tag v0.4.0`).
 
+### 6.3. Bump Discipline (mandatory, no exceptions)
+
+Every landed change is either a **feat** or a **fix**, and both carry a version
+bump in the same unit of work. Do not let unreleased work pile up: bump
+frequently — one feature/fix batch, one bump, one tag.
+
+| Commit type | Version bump | Changelog section |
+|---|---|---|
+| `feat(...)` | minor — `x.n.x` | `### Added` |
+| `fix(...)` | patch — `x.x.n` | `### Fixed` |
+| breaking / architectural | major — `1.x.x` (LTS) | `### Changed` / `### Removed` |
+
+Rules:
+
+1. **feat ⇒ minor, fix ⇒ patch.** A commit that adds behaviour without bumping
+   the version is incomplete; the same is true for a fix. Chore/docs/refactor/test
+   commits do not bump on their own — they ride on the next feat/fix bump.
+2. **Bump frequently.** Every feature batch or bug-fix batch ends with a bump
+   commit, changelog entry and tag before the next batch starts.
+3. **Bump commit format:** `chore(release): vX.Y.Z — <summary>`, tagged
+   `vX.Y.Z`. Never amend or move a tag; a mistake gets a new patch release.
+4. **Android app versions are independent.** EJ Manager keeps its own counter in
+   `android/app/build.gradle.kts` (`versionName`/`versionCode`) and its own
+   `android/CHANGELOG.md`; tags are `android-vX.Y.Z`.
+5. **Use the tool, not by hand:** `scripts/version-bump.sh feat "summary"`
+   (core) or `scripts/version-bump.sh fix "summary" --android` — it edits the
+   changelog, bumps the app manifest, commits and tags in one shot.
+6. **Push every release:** `git push origin <branch> --tags` after a bump so the
+   tag exists on the remote.
+
 ---
 
 ## 7. DEX⇄Smali Round-Trip Parity
