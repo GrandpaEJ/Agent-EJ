@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -46,17 +48,19 @@ import org.agentej.android.Util
 
 private data class ZipRow(val name: String, val size: Long, val compressed: Boolean)
 
+private val TABS = listOf("Info", "ZIP", "Manifest", "Res", "Dex")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> Unit) {
     val scope = rememberCoroutineScope()
-    val apk = remember(apkPath) { apkPath }
-    val fileName = apk.substringAfterLast('/')
-    val baseDir = apk.substringBeforeLast('/', "/sdcard")
+    val fileName = apkPath.substringAfterLast('/')
+    val baseDir = apkPath.substringBeforeLast('/', "/sdcard")
     val baseName = fileName.substringBeforeLast('.')
 
     var tab by remember { mutableIntStateOf(0) }
     val rows = remember { mutableStateListOf<ZipRow>() }
+    val info = remember { mutableStateListOf<Pair<String, String>>() }
     val resStrings = remember { mutableStateListOf<String>() }
     val dexNames = remember { mutableStateListOf<String>() }
     val classes = remember { mutableStateListOf<String>() }
@@ -73,27 +77,62 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
         }
     }
 
+    fun openEntry(name: String) {
+        task {
+            when {
+                name.endsWith(".xml", true) -> {
+                    val xml = Native.axmlDecode(apkPath, name)
+                    if (xml.isNotBlank()) {
+                        onView(name, xml)
+                        "decoded $name"
+                    } else {
+                        "cannot decode $name"
+                    }
+                }
+                else -> {
+                    val text = Native.readEntry(apkPath, name)?.let { Util.decodeText(it) }
+                    if (text != null) {
+                        onView(name, text)
+                        "opened $name"
+                    } else {
+                        "binary entry: $name"
+                    }
+                }
+            }
+        }
+    }
+
     LaunchedEffect(apkPath) {
-        val raw = withContext(Dispatchers.IO) { Native.zipEntries(apkPath)?.toList() ?: emptyList() }
+        busy = true
+        val (raw, facts) = withContext(Dispatchers.IO) {
+            (Native.zipEntries(apkPath)?.toList() ?: emptyList()) to
+                (Native.apkInfo(apkPath)?.toList() ?: emptyList())
+        }
         rows.clear()
         raw.forEach { line ->
             val p = line.split('\t')
             if (p.size >= 3) rows.add(ZipRow(p[0], p[1].toLongOrNull() ?: 0L, p[2] == "1"))
         }
+        info.clear()
+        facts.forEach { line ->
+            val parts = line.split('\t', limit = 2)
+            if (parts.size == 2) info.add(parts[0] to parts[1])
+        }
         dexNames.clear()
         dexNames.addAll(Util.dexNames(raw))
         dexNames.firstOrNull()?.let { dexSel = it }
-        status = "${rows.size} entries"
+        status = if (info.isNotEmpty()) "pick a tab" else "${rows.size} entries"
+        busy = false
     }
 
     LaunchedEffect(tab) {
         when (tab) {
-            1 -> if (manifest == null) {
+            2 -> if (manifest == null) {
                 busy = true
                 manifest = withContext(Dispatchers.IO) { Native.axmlDecode(apkPath, "AndroidManifest.xml") }
                 busy = false
             }
-            2 -> if (resStrings.isEmpty()) {
+            3 -> if (resStrings.isEmpty()) {
                 busy = true
                 val list = withContext(Dispatchers.IO) { Native.arscStrings(apkPath, 8000)?.toList() ?: emptyList() }
                 resStrings.addAll(list)
@@ -103,7 +142,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
     }
 
     LaunchedEffect(dexSel, tab) {
-        if (tab == 3 && classes.isEmpty()) {
+        if (tab == 4 && classes.isEmpty()) {
             busy = true
             val list = withContext(Dispatchers.IO) { Native.dexClasses(apkPath, dexSel)?.toList() ?: emptyList() }
             classes.addAll(list)
@@ -111,15 +150,25 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
         }
     }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Column(Modifier.fillMaxSize().safeDrawingPadding().background(MaterialTheme.colorScheme.background)) {
         Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
                     TextButton(onClick = onBack) { Text("\u2190", fontSize = 16.sp) }
                     Column(Modifier.weight(1f).padding(top = 8.dp)) {
-                        Text(fileName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(status, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            fileName,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            status,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     TextButton(onClick = { task { Native.apkAnalyze(apkPath) } }) {
                         Text("analyze", fontSize = 11.sp)
@@ -156,15 +205,9 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                             Util.parseRc(Native.arscDumpToml(apkPath, toml)).toString()
                         }
                     }) { Text("arsc.toml", fontSize = 11.sp) }
-                    TextButton(onClick = {
-                        scope.launch {
-                            val dump = withContext(Dispatchers.IO) { Native.dexDump(apkPath, dexSel) }
-                            onView("$dexSel header", dump)
-                        }
-                    }) { Text("dex info", fontSize = 11.sp) }
                 }
                 TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface) {
-                    listOf("ZIP", "Manifest", "Res", "Dex").forEachIndexed { i, label ->
+                    TABS.forEachIndexed { i, label ->
                         Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label, fontSize = 11.sp) })
                     }
                 }
@@ -177,77 +220,119 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
         Column(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 0 -> LazyColumn(Modifier.fillMaxSize()) {
+                    items(info) { (k, v) ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp)) {
+                            Text(
+                                k,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(0.38f),
+                                maxLines = 1
+                            )
+                            Text(
+                                if (k == "Size") Util.compactSize(v.toLongOrNull() ?: 0L) else v,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.weight(0.62f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    if (info.isEmpty()) item {
+                        Text(
+                            "reading…",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+
+                1 -> LazyColumn(Modifier.fillMaxSize()) {
                     items(rows, key = { it.name }) { row ->
                         Row(
-                            Modifier.fillMaxWidth().clickable {
-                                task {
-                                    when {
-                                        row.name.endsWith(".xml", true) -> {
-                                            val xml = Native.axmlDecode(apkPath, row.name)
-                                            if (xml.isNotBlank()) {
-                                                onView(row.name, xml)
-                                                "decoded ${row.name}"
-                                            } else "cannot decode ${row.name}"
-                                        }
-                                        else -> {
-                                            val bytes = Native.readEntry(apkPath, row.name)
-                                            val text = bytes?.let { Util.decodeText(it) }
-                                            if (text != null) {
-                                                onView(row.name, text)
-                                                "opened ${row.name}"
-                                            } else "binary entry: ${row.name}"
-                                        }
-                                    }
-                                }
-                            }.padding(horizontal = 12.dp, vertical = 6.dp)
+                            Modifier.fillMaxWidth().height(38.dp)
+                                .clickable { openEntry(row.name) }
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                         ) {
-                            Text(row.name, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            Text((if (row.compressed) "z " else "") + Util.humanSize(row.size),
-                                fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 8.dp))
+                            Text(
+                                row.name,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                (if (row.compressed) "z " else "") + Util.compactSize(row.size),
+                                fontSize = 9.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
                         }
                     }
                 }
 
-                1 -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
-                    Text(manifest ?: "decoding…", fontFamily = FontFamily.Monospace, fontSize = 11.sp,
-                        lineHeight = 15.sp)
+                2 -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
+                    Text(
+                        manifest ?: "decoding…",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
                 }
 
-                2 -> LazyColumn(Modifier.fillMaxSize()) {
+                3 -> LazyColumn(Modifier.fillMaxSize()) {
                     itemsIndexed(resStrings) { i, s ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                            Text(i.toString(), fontSize = 9.sp,
+                            Text(
+                                i.toString(),
+                                fontSize = 9.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(end = 10.dp))
+                                modifier = Modifier.padding(end = 10.dp)
+                            )
                             Text(s, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }
 
-                3 -> Column(Modifier.fillMaxSize()) {
-                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                4 -> Column(Modifier.fillMaxSize()) {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         dexNames.forEach { d ->
-                            TextButton(onClick = { dexSel = d; classes.clear() }) {
-                                Text(d, fontSize = 10.sp,
+                            TextButton(onClick = {
+                                dexSel = d
+                                classes.clear()
+                            }) {
+                                Text(
+                                    d,
+                                    fontSize = 10.sp,
                                     color = if (d == dexSel) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     LazyColumn(Modifier.fillMaxSize()) {
                         itemsIndexed(classes) { i, cls ->
-                            Text(cls, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            Text(
+                                cls,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.fillMaxWidth().clickable {
                                     scope.launch {
                                         val smali = withContext(Dispatchers.IO) { Native.dexSmali(apkPath, dexSel, i) }
                                         onView(cls, smali)
                                     }
-                                }.padding(horizontal = 12.dp, vertical = 6.dp))
+                                }.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
                         }
                     }
                 }
