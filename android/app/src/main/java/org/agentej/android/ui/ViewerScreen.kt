@@ -70,7 +70,9 @@ fun ViewerScreen(
     title: String, body: String, source: String?, onBack: () -> Unit,
     focusLine: Int = -1, focusText: String? = null,
     /** Saves the edited text somewhere other than [source]; returns an error, or null when saved. */
-    onSave: (suspend (String) -> String?)? = null
+    onSave: (suspend (String) -> String?)? = null,
+    /** Snackbar after an [onSave] that worked. */
+    savedNote: String? = null
 ) {
     val scope = rememberCoroutineScope()
     val clip = LocalClipboardManager.current
@@ -126,7 +128,7 @@ fun ViewerScreen(
     fun save() = scope.launch {
         if (onSave != null) {
             val err = onSave(draft)
-            if (err == null) { text = draft; editing = false; snack.showSnackbar("Saved · compile with the hammer in the Dex Editor") }
+            if (err == null) { text = draft; editing = false; snack.showSnackbar(savedNote ?: "Saved · compile with the hammer in the Dex Editor") }
             else snack.showSnackbar(err)
             return@launch
         }

@@ -49,6 +49,10 @@ static arsc_ctx *g_enc_arsc = NULL;
 
 void axml_assemble_set_arsc(arsc_ctx *arsc) { g_enc_arsc = arsc; }
 
+/* First problem met while encoding (an unknown @type/name), "" when none. */
+static char g_enc_err[200];
+const char *axml_assemble_error(void) { return g_enc_err; }
+
 // Resolves an attribute's namespace prefix to its URI via the root's xmlns attrs
 static const char *resolve_ns(xml_doc *doc, const char *prefix) {
     if (!prefix) return NULL;
@@ -329,6 +333,10 @@ static void parse_attr_value(str_builder *pool, const char *val, const char *ana
             *out_data = strtoul(val + (val[1] == 'r' ? 7 : 1), NULL, 16);
             return;
         }
+        /* "@type/name" nobody could resolve would become a literal string the
+         * app cannot use: report it instead of writing a broken file */
+        if (strchr(val, '/') && !g_enc_err[0])
+            snprintf(g_enc_err, sizeof(g_enc_err), "unknown resource %s", val);
     }
     if (val[0] == '?') { /* theme attribute reference: same forms with '?' */
         uint32_t ref_data;
@@ -530,6 +538,7 @@ static void encode_node(xml_doc *doc, xml_node *node, str_builder *pool, byte_bu
 
 // Phase 2 + 3: Prepares String Pool and Encodes AST to AXML Buffer
 uint8_t* axml_assemble_doc(xml_doc *doc, size_t *out_size) {
+    g_enc_err[0] = '\0';
     str_builder pool = {0};
     add_string(&pool, "http://schemas.android.com/apk/res/android");
     collect_strings(doc, doc->root, &pool);
@@ -633,41 +642,4 @@ uint8_t* axml_assemble_doc(xml_doc *doc, size_t *out_size) {
     
     *out_size = final.len;
     return final.data;
-}
-#include <stdio.h>
-int axml_assemble(const char *src_xml, const char *out_axml) {
-    FILE *f = fopen(src_xml, "rb");
-    if (!f) return -1;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    
-    char *buf = malloc(sz + 1);
-    fread(buf, 1, sz, f);
-    buf[sz] = '\0';
-    fclose(f);
-    
-    xml_doc *doc = xml_parse(buf);
-    if (!doc) {
-        free(buf);
-        return -1;
-    }
-    
-    size_t out_sz = 0;
-    uint8_t *axml_data = axml_assemble_doc(doc, &out_sz);
-    
-    FILE *out = fopen(out_axml, "wb");
-    if (!out) {
-        free(axml_data);
-        xml_free(doc);
-        free(buf);
-        return -1;
-    }
-    fwrite(axml_data, 1, out_sz, out);
-    fclose(out);
-    
-    free(axml_data);
-    xml_free(doc);
-    free(buf);
-    return 0;
 }

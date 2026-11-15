@@ -52,6 +52,7 @@ import org.agentej.android.FileOps
 import org.agentej.android.FsEntry
 import org.agentej.android.Prefs
 import org.agentej.android.Rc
+import org.agentej.android.AxmlText
 import org.agentej.android.Route
 import org.agentej.android.Target
 import org.agentej.android.Tools
@@ -128,6 +129,7 @@ fun Commander(
     fun viewText(act: Act, t: Target) = scope.launch {
         val v = withContext(Dispatchers.IO) { Tools.view(act, t, context.packageManager) }
         when {
+            v != null && act == Act.AXML_VIEW -> push(AxmlText.route(v.first, v.second, t.archive ?: t.path, t.entry ?: ""))
             v != null -> push(Route.Text(v.first, v.second, if (act == Act.TEXT && !t.inArchive) t.path else null))
             act == Act.TEXT -> {
                 val r = snack.showSnackbar("${t.name} looks binary", actionLabel = "HEX")

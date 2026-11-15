@@ -2,6 +2,12 @@ package org.agentej.android
 
 import android.content.pm.PackageManager
 import android.content.res.Resources
+import android.util.Xml
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserException
+import java.io.StringReader
 
 /** Decoded binary XML the way MT shows it: framework ids named, permissions labelled. */
 object AxmlText {
@@ -62,5 +68,43 @@ object AxmlText {
         val l = runCatching { pm.getPermissionInfo(name, 0).loadLabel(pm).toString() }.getOrNull()?.trim()
         if (l.isNullOrEmpty() || l == name) return null
         return l.replaceFirstChar { it.uppercaseChar() }.replace("--", "- -")
+    }
+
+    /** Where saving [entry] of [archive] writes: the APK's "_edited" copy, or the binary XML itself. */
+    fun saveTarget(archive: String, entry: String): String = when {
+        entry.isEmpty() -> archive
+        Outputs.base(archive).endsWith("_edited") -> archive
+        else -> Util.join(
+            Util.parent(archive).takeIf { java.io.File(it).canWrite() } ?: Workspace.output,
+            Outputs.base(archive) + "_edited.apk"
+        )
+    }
+
+    /** The viewer route for decoded XML that saves back through [save]. */
+    fun route(title: String, body: String, archive: String, entry: String): Route {
+        val target = saveTarget(archive, entry)
+        val note = if (entry.isEmpty()) "Saved ${target.substringAfterLast('/')}"
+        else "Saved into ${target.substringAfterLast('/')} · signed"
+        return Route.Text(title, body, onSave = { save(archive, entry, it) }, savedNote = note)
+    }
+
+    /** Null when [xml] is well-formed, else the parser's complaint with its line. */
+    fun check(xml: String): String? = try {
+        val p = Xml.newPullParser().apply { setInput(StringReader(xml)) }
+        while (p.next() != XmlPullParser.END_DOCUMENT) Unit
+        null
+    } catch (e: XmlPullParserException) {
+        "Line ${e.lineNumber}: ${e.message?.substringBefore(" (position")?.substringBefore("@")?.trim()}"
+    }
+
+    /** Encodes the edited text and writes it back (see [saveTarget]); null when saved, else why not. */
+    suspend fun save(archive: String, entry: String, xml: String): String? = withContext(Dispatchers.IO) {
+        check(xml)?.let { return@withContext it }
+        val target = saveTarget(archive, entry)
+        /* never write over the file being read: build beside it, then swap */
+        val tmp = "$target.tmp"
+        val r = Util.parseRc(Native.axmlSave(archive, entry, frameworkIds(xml), tmp))
+        if (r.code != 0) { java.io.File(tmp).delete(); return@withContext r.detail }
+        if (!java.io.File(tmp).renameTo(java.io.File(target))) { java.io.File(tmp).delete(); "Cannot write $target" } else null
     }
 }

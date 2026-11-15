@@ -50,10 +50,14 @@ int apk_replace_entries(const char *in_apk, const char *out_apk, const char *con
         size_t l = name ? strlen(name) : 0;
         if (!l || name[l - 1] == '/' || apk_is_signature_file(name)) continue;
         int r = index_of(names, n, name);
+        if (r < 0) {                           /* untouched: keep its compressed bytes */
+            rc = zip_copy_entry(zw, za, i, 4) == 0 ? 0 : -1;
+            continue;
+        }
         size_t sz = 0;
-        uint8_t *data = r >= 0 ? read_all(files[r], &sz) : zip_extract_entry(za, i, &sz);
+        uint8_t *data = read_all(files[r], &sz);
         if (!data) { rc = -1; break; }
-        if (r >= 0) done[r] = 1;
+        done[r] = 1;
         rc = add(zw, name, data, sz) == 0 ? 0 : -1;
         free(data);
     }

@@ -167,34 +167,32 @@ int zip_writer_close(zip_writer *zw) {
     return 0;
 }
 
+/* Copies entry [index] of za as it is (compressed bytes, method, CRC), so a
+ * deflated entry stays deflated. Stored entries get [alignment] (4096 for .so). */
+int zip_copy_entry(zip_writer *zw, zip_archive *za, int index, int alignment) {
+    if (index < 0 || index >= za->num_entries) return -1;
+    struct zip_entry *e = &za->entries[index];
+    if ((size_t)e->lh_offset + sizeof(lfh_t) > za->size) return -1;
+    lfh_t *lfh = (lfh_t *)(za->data + e->lh_offset);
+    size_t data_off = (size_t)e->lh_offset + sizeof(lfh_t) + lfh->name_len + lfh->extra_len;
+    if (data_off + e->comp_size > za->size) return -1;
+    const char *name = zip_get_entry_name(za, index);
+    int align = 0;
+    if (e->method == 0) {
+        size_t n = strlen(name);
+        align = n > 3 && strcmp(name + n - 3, ".so") == 0 ? 4096 : alignment;
+    }
+    return zip_writer_add_raw(zw, name, za->data + data_off, e->comp_size, e->uncomp_size, e->crc32, e->method, align);
+}
+
 int zipalign_file(const char *in_path, const char *out_path, int alignment) {
     zip_archive *za = zip_open(in_path);
     if (!za) { printf("zip_open failed\n"); return -1; }
     zip_writer *zw = zip_writer_open(out_path);
     if (!zw) { printf("zip_writer_open failed\n"); zip_close(za); return -1; }
-
+    int rc = 0;
     int n = zip_get_num_entries(za);
-    for (int i = 0; i < n; i++) {
-        struct zip_entry *e = &za->entries[i];
-        lfh_t *lfh = (lfh_t *)(za->data + e->lh_offset);
-        uint32_t data_off = e->lh_offset + sizeof(lfh_t) + lfh->name_len + lfh->extra_len;
-        const void *comp_data = za->data + data_off;
-
-        const char *name = zip_get_entry_name(za, i);
-        int is_stored = (e->method == 0);
-
-        int entry_align = 0;
-        if (is_stored) {
-            entry_align = alignment;
-            size_t n_len = strlen(name);
-            if (n_len > 3 && strcmp(name + n_len - 3, ".so") == 0) {
-                entry_align = 4096;
-            }
-        }
-
-        zip_writer_add_raw(zw, name, comp_data, e->comp_size, e->uncomp_size, e->crc32, e->method, entry_align);
-    }
-
+    for (int i = 0; i < n && rc == 0; i++) rc = zip_copy_entry(zw, za, i, alignment) == 0 ? 0 : -1;
     zip_close(za);
-    return zip_writer_close(zw);
+    return zip_writer_close(zw) == 0 ? rc : -1;
 }

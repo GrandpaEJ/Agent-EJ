@@ -45,7 +45,9 @@ object Native {
 
     // binary resources
     external fun axmlDecode(archive: String, entry: String): String
-    external fun axmlEncode(xml: String, output: String): Int
+    external fun axmlEncode(xml: String, output: String): String
+    /** Encodes edited XML back into [entry] of [archive] (signed copy at [output]), or to [output] when entry is "". */
+    external fun axmlSave(archive: String, entry: String, xml: String, output: String): String
     external fun arscStrings(archive: String, limit: Int): Array<String>?
     external fun arscPatch(archive: String, index: Int, value: String): String
     external fun arscDumpToml(archive: String, output: String): String

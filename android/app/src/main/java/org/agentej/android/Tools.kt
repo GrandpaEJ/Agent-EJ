@@ -58,7 +58,7 @@ object Tools {
                 val xml = Native.readText(p, 8 * 1024 * 1024)
                     ?: return JobResult(Rc(-1, "not a text XML file"), null)
                 val out = Outputs.beside(p, "${b}_binary.xml")
-                JobResult(int(Native.axmlEncode(AxmlText.frameworkIds(xml), out), "encoded to binary XML", "encode failed"), out)
+                JobResult(rc(Native.axmlEncode(AxmlText.frameworkIds(xml), out)), out)
             }
             Act.ARSC_TOML -> Outputs.beside(p, "$b.toml").let { JobResult(rc(Native.arscDumpToml(p, it)), it) }
             Act.BUILD -> Outputs.beside(p, "${b}_build.apk").let { JobResult(rc(Native.apkBuild(p, it)), it) }

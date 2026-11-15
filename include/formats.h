@@ -25,6 +25,8 @@ int zip_writer_add(zip_writer *zw, const char *name, const void *data, size_t si
 int zip_writer_add_raw(zip_writer *zw, const char *name, const void *comp_data, size_t comp_size, size_t uncomp_size, uint32_t crc32, int method, int alignment);
 int zip_writer_close(zip_writer *zw);
 int zipalign_file(const char *in_path, const char *out_path, int alignment);
+/* Raw copy of one entry (keeps its compression); stored entries aligned. */
+int zip_copy_entry(zip_writer *zw, zip_archive *za, int index, int alignment);
 
 // AXML
 axml_ctx *axml_parse(const uint8_t *data, size_t size);
@@ -33,6 +35,11 @@ void axml_free(axml_ctx *ctx);
 int axml_assemble(const char *src_xml, const char *out_axml);
 void axml_set_arsc(axml_ctx *ctx, const struct arsc_ctx *arsc);
 void axml_assemble_set_arsc(struct arsc_ctx *arsc);
+/* Encodes XML text to binary AXML (malloc'd), naming @type/name refs through
+ * arsc (may be NULL). NULL on a parse error or an unknown reference; see
+ * axml_assemble_error() for which. */
+uint8_t *axml_assemble_text(const char *xml, struct arsc_ctx *arsc, size_t *out_size);
+const char *axml_assemble_error(void);
 
 // ARSC
 arsc_ctx *arsc_parse(const uint8_t *data, size_t size);

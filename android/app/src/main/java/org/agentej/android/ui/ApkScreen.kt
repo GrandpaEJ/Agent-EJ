@@ -58,7 +58,7 @@ private val TABS = listOf("Info", "ZIP", "Manifest", "Res", "Dex")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> Unit) {
+fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (title: String, body: String, xmlEntry: String?) -> Unit) {
     val scope = rememberCoroutineScope()
     val pm = androidx.compose.ui.platform.LocalContext.current.packageManager
     val fileName = apkPath.substringAfterLast('/')
@@ -93,7 +93,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                 name.endsWith(".xml", true) -> {
                     val xml = AxmlText.decode(pm, apkPath, name)
                     if (xml.isNotBlank()) {
-                        onView(name, xml)
+                        onView(name, xml, name)
                         "decoded $name"
                     } else {
                         "cannot decode $name"
@@ -102,7 +102,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                 else -> {
                     val text = Native.readEntry(apkPath, name)?.let { Util.decodeText(it) }
                     if (text != null) {
-                        onView(name, text)
+                        onView(name, text, null)
                         "opened $name"
                     } else {
                         "binary entry: $name"
@@ -308,7 +308,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                                 modifier = Modifier.fillMaxWidth().clickable {
                                     scope.launch {
                                         val smali = withContext(Dispatchers.IO) { Native.dexSmali(apkPath, dexSel, i) }
-                                        onView(cls, smali)
+                                        onView(cls, smali, null)
                                     }
                                 }.padding(horizontal = 12.dp, vertical = 6.dp)
                             )

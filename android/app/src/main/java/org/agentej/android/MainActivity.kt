@@ -68,7 +68,7 @@ sealed class Route {
     /** [source] is the on-disk file when the text is editable, null for decoded/derived text. */
     data class Text(
         val title: String, val body: String, val source: String? = null, val line: Int = -1, val needle: String? = null,
-        val onSave: (suspend (String) -> String?)? = null
+        val onSave: (suspend (String) -> String?)? = null, val savedNote: String? = null
     ) : Route()
     data class Hex(val target: Target) : Route()
     data class Image(val target: Target) : Route()
@@ -196,8 +196,10 @@ private fun Shell() {
             )
         } else saver.SaveableStateProvider(top.id) {
             when (val route = top.route) {
-                is Route.Apk -> ApkScreen(apkPath = route.path, onBack = pop, onView = { t, b -> push(Route.Text(t, b)) })
-                is Route.Text -> ViewerScreen(route.title, route.body, route.source, onBack = pop, focusLine = route.line, focusText = route.needle, onSave = route.onSave)
+                is Route.Apk -> ApkScreen(apkPath = route.path, onBack = pop, onView = { t, b, e ->
+                    push(if (e == null) Route.Text(t, b) else AxmlText.route(t, b, route.path, e))
+                })
+                is Route.Text -> ViewerScreen(route.title, route.body, route.source, onBack = pop, focusLine = route.line, focusText = route.needle, onSave = route.onSave, savedNote = route.savedNote)
                 is Route.Hex -> HexScreen(route.target, onBack = pop)
                 is Route.Image -> ImageScreen(route.target, onBack = pop)
                 is Route.Dex -> DexEditorScreen(route.state, onBack = pop, onView = { t, b, l, n, save -> push(Route.Text(t, b, line = l, needle = n, onSave = save)) })
