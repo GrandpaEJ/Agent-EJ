@@ -126,6 +126,10 @@ static void pool_rebuild_hash(smali_pool_strings_t *p) {
     for (uint32_t i = 0; i < p->count; i++) pool_htable_insert(p, i);
 }
 
+int smali_utf16_cmp(const char *a, const char *b) {
+    return comp_str(&a, &b);
+}
+
 void smali_pool_sort_strings(smali_pool_strings_t *p) {
     /* qsort() must not be called with a NULL base even for a zero count. */
     if (p->count > 1) qsort(p->strings, p->count, sizeof(char *), comp_str);

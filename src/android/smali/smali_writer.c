@@ -105,6 +105,9 @@ static int comp_class_methods(const void *a, const void *b) {
 }
 
 int write_assembled_dex(smali_ctx_def_t *ctx, const char *out_dex) {
+    /* A pool regression would otherwise surface only as
+     * INSTALL_FAILED_INVALID_APK on the device (issue #38). */
+    if (smali_validate_pool(ctx) != 0) return -1;
     s_write_ctx = ctx;
     for (uint32_t i = 0; i < ctx->class_count; i++) {
         smali_class_def_t *c = &ctx->classes[i];
