@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [New Released]
 
+## [0.16.0] - 2026-11-16
+
+### Added
+- MT-style XML decompile (resolved names), in-memory XML encoder, APK writes keep entry compression
+
+
 ## [0.15.0] - 2026-11-15
 
 ### Added
