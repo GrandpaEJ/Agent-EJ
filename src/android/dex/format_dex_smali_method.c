@@ -129,7 +129,7 @@ static int emit_try_end_at(smali_sb *s, uint32_t i, try_block_t *blocks,
     return had_catch;
 }
 
-int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
+int smali_dm(smali_sb *s, dex_ctx *ctx, dex_class *owner, dex_method_enc *me) {
     if (me->method_idx >= ctx->method_count)
         return smali_sf(s, ".method unknown\n.end method\n");
 
@@ -160,25 +160,6 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
     else
         smali_sf(s, ".method %s%s\n", mn, protobuf);
     smali_sf(s, "    .registers %u\n", (unsigned)regs);
-
-    /* find class for annotation lookup */
-    uint32_t class_idx = 0xFFFFFFFF;
-    for (uint32_t ci2 = 0; ci2 < ctx->class_count; ci2++) {
-        for (int di = 0; di < ctx->classes[ci2].direct_count; di++) {
-            if (&ctx->classes[ci2].direct[di] == me) {
-                class_idx = ci2;
-                break;
-            }
-        }
-        if (class_idx != 0xFFFFFFFF) break;
-        for (int vi = 0; vi < ctx->classes[ci2].virtual_count; vi++) {
-            if (&ctx->classes[ci2].virtual[vi] == me) {
-                class_idx = ci2;
-                break;
-            }
-        }
-        if (class_idx != 0xFFFFFFFF) break;
-    }
 
     /* parse debug info for .line entries and .param names */
     /* label/line tables are sized from the code length so big obfuscated methods never overflow */
@@ -281,9 +262,9 @@ int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me) {
     }
 
     /* method-level annotations follow the .param lines, as in baksmali */
-    if (class_idx != 0xFFFFFFFF) {
-        smali_write_method_annot(s, ctx, &ctx->classes[class_idx], me->method_idx);
-    }
+    /* the owning class comes from the caller: looking it up per method by
+     * scanning every class made rendering quadratic in the class count */
+    if (owner) smali_write_method_annot(s, ctx, owner, me->method_idx);
 
     /* sorted line entries by address for interpolation */
     for (int i = 0; i < line_count; i++) {

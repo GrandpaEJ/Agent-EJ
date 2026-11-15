@@ -120,7 +120,7 @@ char *dex_to_smali_class(dex_ctx *ctx, uint32_t ci) {
     if (c->direct_count > 0) {
         smali_sa(&sb, had_fields ? "\n# direct methods\n" : "\n\n# direct methods\n");
         for (int mi = 0; mi < c->direct_count; mi++) {
-            smali_dm(&sb, ctx, &c->direct[mi]);
+            smali_dm(&sb, ctx, c, &c->direct[mi]);
             if (mi < c->direct_count - 1) smali_sa(&sb, "\n");
         }
     }
@@ -130,7 +130,7 @@ char *dex_to_smali_class(dex_ctx *ctx, uint32_t ci) {
         int prev = had_fields || c->direct_count > 0;
         smali_sa(&sb, prev ? "\n\n# virtual methods\n" : "\n\n# virtual methods\n");
         for (int mi = 0; mi < c->virtual_count; mi++) {
-            smali_dm(&sb, ctx, &c->virtual[mi]);
+            smali_dm(&sb, ctx, c, &c->virtual[mi]);
             if (mi < c->virtual_count - 1) smali_sa(&sb, "\n");
         }
     }

@@ -113,7 +113,7 @@ int smali_write_method_annot(smali_sb *s, dex_ctx *ctx, dex_class *c,
                               uint32_t method_idx);
 
 // Smali method disassembly
-int smali_dm(smali_sb *s, dex_ctx *ctx, dex_method_enc *me);
+int smali_dm(smali_sb *s, dex_ctx *ctx, dex_class *owner, dex_method_enc *me);
 int smali_dm_abstract(smali_sb *s, dex_ctx *ctx, dex_method_enc *me);
 
 #endif
