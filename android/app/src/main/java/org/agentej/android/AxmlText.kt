@@ -80,6 +80,16 @@ object AxmlText {
         )
     }
 
+    /**
+     * What a save starts from: the existing "_edited" copy when there is one, so
+     * changes already made there (another XML file, translations) are kept
+     * instead of being rebuilt from the original APK and lost.
+     */
+    fun saveBase(archive: String, entry: String): String {
+        val t = saveTarget(archive, entry)
+        return if (t != archive && java.io.File(t).isFile) t else archive
+    }
+
     /** The viewer route for decoded XML that saves back through [save]. */
     fun route(title: String, body: String, archive: String, entry: String): Route {
         val target = saveTarget(archive, entry)
@@ -103,7 +113,7 @@ object AxmlText {
         val target = saveTarget(archive, entry)
         /* never write over the file being read: build beside it, then swap */
         val tmp = "$target.tmp"
-        val r = Util.parseRc(Native.axmlSave(archive, entry, frameworkIds(xml), tmp))
+        val r = Util.parseRc(Native.axmlSave(saveBase(archive, entry), entry, frameworkIds(xml), tmp))
         if (r.code != 0) { java.io.File(tmp).delete(); return@withContext r.detail }
         if (!java.io.File(tmp).renameTo(java.io.File(target))) { java.io.File(tmp).delete(); "Cannot write $target" } else null
     }

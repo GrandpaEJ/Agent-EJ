@@ -78,8 +78,8 @@ private fun missingLabel(type: String) = if (type == "string") "Untranslated" el
 fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val snack = remember { SnackbarHostState() }
-    /* after the first save into "<name>_edited.apk", later saves build on that copy */
-    var src by remember { mutableStateOf(archive) }
+    /* saves go into "<name>_edited.apk" and build on it when it already exists */
+    var src by remember { mutableStateOf(AxmlText.saveBase(archive, entry)) }
     var type by remember { mutableStateOf("string") }
     var pendingType by remember { mutableStateOf<String?>(null) }
     var qual by remember { mutableStateOf<String?>(null) }
