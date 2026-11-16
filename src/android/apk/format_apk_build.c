@@ -255,7 +255,7 @@ int apk_build(const char *src_dir, const char *out_apk, const char *key_path, co
             uint8_t *buf = malloc(sz);
             if (buf) {
                 if (fread(buf, 1, sz, fp) == (size_t)sz) {
-                    zip_writer_add(zw, name, buf, sz, 1, 0);
+                    zip_writer_add_apk(zw, name, buf, sz);
                 }
                 free(buf);
             }

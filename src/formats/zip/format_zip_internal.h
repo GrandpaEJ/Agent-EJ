@@ -74,4 +74,10 @@ struct zip_archive {
 // Inflate from format_zip_inflate.c
 void *zip_inflate(const uint8_t *in, size_t in_len, size_t *out_size);
 
+// Deflate (format_zip_deflate.c, format_zip_huff.c)
+#define ZIP_HUFF_MAXSYM 286
+uint8_t *zip_deflate(const uint8_t *in, size_t n, size_t *out_n);
+void zip_huff_lengths(const uint32_t *freq, int n, int limit, uint8_t *len);
+void zip_huff_codes(const uint8_t *len, int n, uint16_t *code);
+
 #endif
