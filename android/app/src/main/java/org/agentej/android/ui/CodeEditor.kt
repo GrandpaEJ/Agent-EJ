@@ -130,6 +130,7 @@ class CodeEditText(ctx: Context, val history: EditHistory) : EditText(ctx) {
     private var holdScroll = false
     /* TextView drags but never flings; long files need it */
     private val scroller = OverScroller(ctx)
+    private val fast = FastScroll(this)
     private val flinger = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean { scroller.forceFinished(true); return false }
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
@@ -149,6 +150,7 @@ class CodeEditText(ctx: Context, val history: EditHistory) : EditText(ctx) {
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (fast.touch(event)) { scroller.forceFinished(true); return true }
         flinger.onTouchEvent(event)
         return super.onTouchEvent(event)
     }
@@ -196,6 +198,8 @@ class CodeEditText(ctx: Context, val history: EditHistory) : EditText(ctx) {
     fun style(lang: Lang, p: EjPalette, fg: Int, gutter: Int, accent: Int, sizeSp: Float, wrap: Boolean) {
         val restyle = lang != this.lang || p != palette
         this.lang = lang; palette = p; gutterBg = gutter; this.accent = accent
+        fast.color = palette.gutter.toArgb() and 0x00FFFFFF or (0x99 shl 24)
+        fast.activeColor = accent
         setTextColor(fg)
         highlightColor = p.selection.toArgb()
         if (Build.VERSION.SDK_INT >= 29) textCursorDrawable = GradientDrawable().apply {
@@ -288,6 +292,47 @@ class CodeEditText(ctx: Context, val history: EditHistory) : EditText(ctx) {
     }
 
     /** Scrolls logical [line]:[col] to about the fifth row. */
+    /** Puts the cursor at the start of logical [line] and scrolls there. */
+    fun goToLine(line: Int) {
+        index()
+        val l = line.coerceIn(0, newlineCount)
+        setSelection(lineStart(l))
+        reveal(l, 0)
+    }
+
+    /** Replaces hit [m] if the text there still matches [query]; true when done. */
+    fun replaceHit(m: Match, query: String, with: String): Boolean {
+        val a = lineStart(m.line) + m.start
+        val b = lineStart(m.line) + m.end
+        if (b > text.length || !text.substring(a, b).equals(query, ignoreCase = true)) return false
+        text.replace(a, b, with)
+        setSelection(a + with.length)
+        return true
+    }
+
+    /** Replaces every case-insensitive [query] as one undo step; returns how many. */
+    fun replaceAll(query: String, with: String): Int {
+        if (query.isEmpty()) return 0
+        val src = text.toString()
+        val out = StringBuilder(src.length)
+        var from = 0
+        var n = 0
+        while (true) {
+            val at = src.indexOf(query, from, ignoreCase = true)
+            if (at < 0) break
+            out.append(src, from, at).append(with)
+            from = at + query.length
+            n++
+        }
+        if (n == 0) return 0
+        out.append(src, from, src.length)
+        val keep = scrollY
+        text.replace(0, text.length, out)
+        holdScroll = true
+        scrollTo(0, keep)
+        return n
+    }
+
     fun reveal(line: Int, col: Int) {
         val lay = layout ?: run { post { reveal(line, col) }; return }
         val off = (lineStart(line) + col).coerceIn(0, text.length)
@@ -355,6 +400,7 @@ class CodeEditText(ctx: Context, val history: EditHistory) : EditText(ctx) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val lay = layout ?: return
+        fast.draw(canvas)
         index()
         val d = resources.displayMetrics.density
         val gw = paddingLeft - 8 * d
@@ -383,6 +429,7 @@ class CodeEditorState {
     var edits by mutableIntStateOf(0)
     fun text(): String? = view?.text?.toString()
     fun reveal(line: Int, col: Int = 0) { view?.reveal(line, col) }
+    fun goToLine(line: Int) { view?.goToLine(line) }
 }
 
 /** MT-style text editor: opens straight into editing, coloured, with line numbers. */

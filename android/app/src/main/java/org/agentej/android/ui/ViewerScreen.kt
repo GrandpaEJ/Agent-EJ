@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +60,7 @@ import org.agentej.android.Native
 import org.agentej.android.Util
 
 /** Files above this open read-only in the lazy viewer; the editor holds the whole text. */
-private const val EDIT_LIMIT = 256 * 1024
+private const val EDIT_LIMIT = 2 * 1024 * 1024
 
 @Composable
 fun ViewerScreen(
@@ -91,6 +92,9 @@ fun ViewerScreen(
     var confirmDiscard by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var navOpen by remember { mutableStateOf(false) }
+    var replacing by remember { mutableStateOf(false) }
+    var replacement by remember { mutableStateOf("") }
+    var gotoOpen by remember { mutableStateOf(false) }
     val outline = remember(lines, lang) { if (lang == Lang.SMALI) smaliOutline(lines) else emptyList() }
     val strings = remember(lines, lang) { if (lang == Lang.SMALI) smaliStrings(lines) else emptyList() }
     val list = rememberLazyListState()
@@ -106,8 +110,12 @@ fun ViewerScreen(
         if (query.isEmpty() && focusPinned) return@LaunchedEffect
         focusPinned = false
         delay(150)
+        val was = matches.getOrNull(active)
         matches = withContext(Dispatchers.Default) { findMatches(lines, query) }
-        active = if (matches.isEmpty()) -1 else 0
+        /* after an edit or a replace, stay at the same spot instead of jumping to the first hit */
+        active = if (matches.isEmpty()) -1
+        else if (was == null) 0
+        else matches.indexOfFirst { it.line > was.line || (it.line == was.line && it.start >= was.start) }.let { if (it < 0) 0 else it }
     }
     LaunchedEffect(active) {
         matches.getOrNull(active)?.let { reveal(it.line, it.start) }
@@ -144,7 +152,18 @@ fun ViewerScreen(
         } else snack.showSnackbar("Save failed — the folder may be read-only")
     }
 
-    BackHandler(enabled = searching) { searching = false; query = "" }
+    fun replaceOne() {
+        val m = matches.getOrNull(active) ?: return
+        if (ed.view?.replaceHit(m, query, replacement) != true)
+            scope.launch { snack.showSnackbar("Text changed there — find again") }
+    }
+
+    fun replaceAll() {
+        val n = ed.view?.replaceAll(query, replacement) ?: 0
+        scope.launch { snack.showSnackbar(if (n == 0) "No match" else "Replaced $n") }
+    }
+
+    BackHandler(enabled = searching) { searching = false; replacing = false; query = "" }
     BackHandler(enabled = !searching && dirty) { confirmDiscard = true }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).safeDrawingPadding()) {
@@ -167,6 +186,10 @@ fun ViewerScreen(
                     Box {
                         IconBtn(Icons.Default.MoreVert, "More") { moreOpen = true }
                         DropdownMenu(moreOpen, onDismissRequest = { moreOpen = false }) {
+                            if (canEdit) DropdownMenuItem(text = { Text("Replace") }, onClick = {
+                                moreOpen = false; searching = true; replacing = true
+                            })
+                            DropdownMenuItem(text = { Text("Go to line") }, onClick = { moreOpen = false; gotoOpen = true })
                             DropdownMenuItem(text = { Text(if (wrap) "Turn off wrap" else "Wrap lines") }, onClick = {
                                 moreOpen = false; wrap = !wrap
                             })
@@ -185,8 +208,10 @@ fun ViewerScreen(
                 }
             }
             if (searching) FindBar(query, { query = it }, matches.size, active, ::step) {
-                searching = false; query = ""
+                searching = false; replacing = false; query = ""
             }
+            if (searching && replacing && canEdit) ReplaceBar(replacement, { replacement = it },
+                enabled = query.isNotEmpty() && matches.isNotEmpty(), onOne = ::replaceOne, onAll = ::replaceAll)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             if (canEdit) {
@@ -222,6 +247,11 @@ fun ViewerScreen(
         active = 0
         reveal(it.line, it.col)
     })
+
+    if (gotoOpen) GoToLineDialog(lines.size, onDismiss = { gotoOpen = false }) { n ->
+        gotoOpen = false
+        if (canEdit) ed.goToLine(n - 1) else scope.launch { list.scrollToItem((n - 5).coerceAtLeast(0)) }
+    }
 
     if (confirmDiscard) AlertDialog(
         onDismissRequest = { confirmDiscard = false },
@@ -278,4 +308,52 @@ private fun FindBar(
         IconBtn(Icons.Default.KeyboardArrowDown, "Next match", enabled = count > 0) { step(1) }
         IconBtn(Icons.Default.Close, "Close find", onClick = onClose)
     }
+}
+
+@Composable
+private fun ReplaceBar(value: String, onValue: (String) -> Unit, enabled: Boolean, onOne: () -> Unit, onAll: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).height(52.dp).padding(start = 4.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextField(
+            value = value,
+            onValueChange = onValue,
+            placeholder = { Text("Replace with", fontSize = 14.sp) },
+            singleLine = true,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent
+            ),
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onOne, enabled = enabled) { Text("Replace") }
+        TextButton(onClick = onAll, enabled = enabled) { Text("All") }
+    }
+}
+
+@Composable
+private fun GoToLineDialog(total: Int, onDismiss: () -> Unit, onGo: (Int) -> Unit) {
+    var v by remember { mutableStateOf("") }
+    val n = v.toIntOrNull()
+    val ok = n != null && n in 1..total
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Go to line") },
+        text = {
+            TextField(
+                value = v,
+                onValueChange = { t -> v = t.filter { it.isDigit() }.take(9) },
+                placeholder = { Text("1 – $total") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { if (ok) onGo(n!!) }),
+                modifier = Modifier.focusRequester(focus)
+            )
+        },
+        confirmButton = { TextButton(onClick = { onGo(n!!) }, enabled = ok) { Text("GO") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL") } }
+    )
 }
