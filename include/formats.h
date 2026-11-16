@@ -68,6 +68,11 @@ char *arsc_tr_locales(arsc_tr *t);
 /* One line per plain string: "id\tkey\tdefault\t[=value in qual]", fields
  * escaped (\\ \n \t \r); the last field is empty when qual has no value. */
 char *arsc_tr_dump(arsc_tr *t, const char *qual);
+/* The same for another value type ("color", "dimen", "bool", "integer"):
+ * colours, dimensions, booleans and integers are written as text ("#ff2196f3",
+ * "16dp", "true", "12") and read back by arsc_tr_set. */
+char *arsc_tr_locales_of(arsc_tr *t, const char *type);
+char *arsc_tr_dump_of(arsc_tr *t, const char *type, const char *qual);
 /* Sets id's text in qual, adding the entry or a new "-ll[-rCC]" language when
  * missing. 1 changed, 0 already that text, -1 not a translatable string. */
 int arsc_tr_set(arsc_tr *t, uint32_t id, const char *qual, const char *text);

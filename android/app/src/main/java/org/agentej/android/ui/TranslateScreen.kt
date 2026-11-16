@@ -2,6 +2,11 @@ package org.agentej.android.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -66,6 +71,8 @@ import java.util.Locale
 
 private enum class Show(val label: String) { ALL("All"), MISSING("Untranslated"), EDITED("Edited") }
 
+private fun missingLabel(type: String) = if (type == "string") "Untranslated" else "Not set"
+
 /** MT's Translation mode: every <string> of a resources.arsc, its default text and its text in one language. */
 @Composable
 fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
@@ -73,6 +80,8 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
     val snack = remember { SnackbarHostState() }
     /* after the first save into "<name>_edited.apk", later saves build on that copy */
     var src by remember { mutableStateOf(archive) }
+    var type by remember { mutableStateOf("string") }
+    var pendingType by remember { mutableStateOf<String?>(null) }
     var qual by remember { mutableStateOf<String?>(null) }
     var locales by remember { mutableStateOf<List<String>>(emptyList()) }
     var rows by remember { mutableStateOf<List<TrRow>?>(null) }
@@ -89,18 +98,25 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
     var importPath by remember { mutableStateOf<String?>(null) }
 
     /* first open: the device language when the table has it, else the first one */
-    LaunchedEffect(src) {
-        val l = withContext(Dispatchers.IO) { ArscText.locales(src, entry) }
+    /* other value types open on their default values: that is what one usually changes */
+    LaunchedEffect(src, type) {
+        val l = withContext(Dispatchers.IO) { ArscText.locales(src, entry, type) }
         locales = l
         if (qual == null) {
             val dev = Locale.getDefault()
-            qual = ArscText.qualOf(dev)?.takeIf { it in l } ?: "-${dev.language}".takeIf { it in l } ?: l.firstOrNull() ?: ""
+            qual = if (type != "string") ""
+            else ArscText.qualOf(dev)?.takeIf { it in l } ?: "-${dev.language}".takeIf { it in l } ?: l.firstOrNull() ?: ""
         }
     }
-    LaunchedEffect(src, qual) {
+    LaunchedEffect(src, qual, type) {
         val q = qual ?: return@LaunchedEffect
         rows = null
-        rows = withContext(Dispatchers.IO) { ArscText.rows(src, entry, q) }
+        rows = withContext(Dispatchers.IO) { ArscText.rows(src, entry, q, type) }
+    }
+
+    fun switchType(t: String) {
+        if (t == type) return
+        rows = null; qual = null; type = t; selected.clear()
     }
 
     fun current(r: TrRow): String? = edits[r.id] ?: if (qual == "") r.def else r.value
@@ -128,9 +144,9 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
         val n = edits.size
         edits.clear()
         if (target != src) src = target
-        else rows = withContext(Dispatchers.IO) { ArscText.rows(src, entry, q) }
-        locales = withContext(Dispatchers.IO) { ArscText.locales(src, entry) }
-        snack.showSnackbar("Saved $n string${if (n == 1) "" else "s"} into ${target.substringAfterLast('/')}${if (entry.isEmpty()) "" else " · signed"}")
+        else rows = withContext(Dispatchers.IO) { ArscText.rows(src, entry, q, type) }
+        locales = withContext(Dispatchers.IO) { ArscText.locales(src, entry, type) }
+        snack.showSnackbar("Saved $n value${if (n == 1) "" else "s"} into ${target.substringAfterLast('/')}${if (entry.isEmpty()) "" else " · signed"}")
     }
 
     /** Sets [r]'s text, or drops the edit when it is back to the stored text. */
@@ -147,20 +163,25 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
 
     fun export() = scope.launch {
         val q = qual ?: return@launch
-        val path = ArscDict.pathFor(archive, q)
-        val err = withContext(Dispatchers.IO) { ArscDict.export(path, all.map { it to current(it) }) }
+        val path = ArscDict.pathFor(archive, q, type)
+        val err = withContext(Dispatchers.IO) { ArscDict.export(path, all.map { it to current(it) }, type) }
         snack.showSnackbar(err ?: "Exported ${all.size} strings to ${path.substringAfterLast('/')}")
     }
 
     fun import(path: String) = scope.launch {
-        val map = withContext(Dispatchers.IO) { ArscDict.read(path) }.getOrElse {
+        val map = withContext(Dispatchers.IO) { ArscDict.read(path, type) }.getOrElse {
             snack.showSnackbar("Cannot read ${path.substringAfterLast('/')}: ${it.message}"); return@launch
         }
         val byKey = all.associateBy { it.key }
         var n = 0
-        for ((k, v) in map) byKey[k]?.let { r -> if (current(r) != v) { setText(r, v); n++ } }
+        var bad = 0
+        for ((k, v) in map) byKey[k]?.let { r ->
+            if (ArscText.invalid(type, v) != null) bad++
+            else if (current(r) != v) { setText(r, v); n++ }
+        }
         val unknown = map.keys.count { it !in byKey }
-        snack.showSnackbar("Imported $n change${if (n == 1) "" else "s"}" + if (unknown > 0) " · $unknown unknown keys skipped" else "")
+        snack.showSnackbar("Imported $n change${if (n == 1) "" else "s"}" +
+            (if (unknown > 0) " · $unknown unknown keys skipped" else "") + (if (bad > 0) " · $bad invalid values skipped" else ""))
     }
 
     BackHandler(enabled = selected.isNotEmpty()) { selected.clear() }
@@ -179,8 +200,9 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
                 }) { Text("Use default") }
                 TextButton(onClick = { selected.keys.forEach { edits.remove(it) }; selected.clear() }) { Text("Revert") }
             } else EjTopBar(
-                "Translation · ${ArscText.label(qual ?: "")}",
-                if (rows == null) name else "$name · $done/${all.size} translated" + if (edits.isEmpty()) "" else " · ${edits.size} unsaved",
+                (if (type == "string") "Translation" else ArscText.TYPES.first { it.first == type }.second) + " · ${ArscText.label(qual ?: "")}",
+                if (rows == null) name else "$name · $done/${all.size} ${if (type == "string") "translated" else "set"}" +
+                    if (edits.isEmpty()) "" else " · ${edits.size} unsaved",
                 leading = { IconBtn(Icons.AutoMirrored.Filled.ArrowBack, "Back") { if (edits.isEmpty()) onBack() else confirmBack = true } }
             ) {
                 IconBtn(EjIcons.Translate, "Language") { picking = true }
@@ -188,11 +210,11 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
                 Box {
                     IconBtn(Icons.Default.MoreVert, "More") { menuOpen = true }
                     DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
-                        if (qual != "") DropdownMenuItem(text = { Text("Fill untranslated with default") }, enabled = rows != null,
+                        if (qual != "") DropdownMenuItem(text = { Text("Fill ${missingLabel(type).lowercase()} with default") }, enabled = rows != null,
                             onClick = { menuOpen = false; fillMissing() })
-                        DropdownMenuItem(text = { Text("Export strings.xml") }, enabled = rows != null, onClick = { menuOpen = false; export() })
-                        DropdownMenuItem(text = { Text("Import strings.xml") }, enabled = rows != null, onClick = {
-                            menuOpen = false; importPath = ArscDict.pathFor(archive, qual ?: "")
+                        DropdownMenuItem(text = { Text("Export ${type}s.xml") }, enabled = rows != null, onClick = { menuOpen = false; export() })
+                        DropdownMenuItem(text = { Text("Import ${type}s.xml") }, enabled = rows != null, onClick = {
+                            menuOpen = false; importPath = ArscDict.pathFor(archive, qual ?: "", type)
                         })
                     }
                 }
@@ -206,20 +228,26 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((t, label) in ArscText.TYPES)
+                    FilterChip(type == t, { if (edits.isEmpty()) switchType(t) else if (t != type) pendingType = t }, label = { Text(label, fontSize = 13.sp) })
+            }
             Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (s in Show.entries) {
                     val n = when (s) { Show.ALL -> all.size; Show.MISSING -> all.size - done; Show.EDITED -> edits.size }
-                    FilterChip(show == s, { show = s }, label = { Text("${s.label} $n", fontSize = 13.sp) })
+                    val l = if (s == Show.MISSING) missingLabel(type) else s.label
+                    FilterChip(show == s, { show = s }, label = { Text("$l $n", fontSize = 13.sp) })
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             when {
                 rows == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                all.isEmpty() -> EmptyState("No strings", "This resource table has no plain <string> resources.")
+                all.isEmpty() -> EmptyState("Nothing here", "This resource table has no plain <$type> values.")
                 shown.isEmpty() -> EmptyState("Nothing to show", if (query.isNotBlank()) "No string matches \"$query\"." else "No ${show.label.lowercase()} strings.")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(shown, key = { it.id }) { r ->
-                        TrRowItem(r, current(r), r.id in edits, qual == "", r.id in selected,
+                        TrRowItem(r, current(r), r.id in edits, qual == "", r.id in selected, type,
                             onClick = {
                                 if (selected.isEmpty()) editing = r
                                 else if (r.id in selected) selected.remove(r.id) else selected[r.id] = true
@@ -236,7 +264,7 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
     }
 
     editing?.let { r ->
-        EditDialog(r, current(r), qual ?: "", onDismiss = { editing = null }) { v ->
+        EditDialog(r, current(r), qual ?: "", type, onDismiss = { editing = null }) { v ->
             setText(r, v)
             editing = null
         }
@@ -245,6 +273,15 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
         picking = false
         if (q == qual) return@LanguageDialog
         if (edits.isEmpty()) qual = q else pendingQual = q
+    }
+    pendingType?.let { t ->
+        AlertDialog(
+            onDismissRequest = { pendingType = null },
+            title = { Text("Unsaved changes") },
+            text = { Text("${edits.size} unsaved edit${if (edits.size == 1) "" else "s"} will be dropped.") },
+            confirmButton = { TextButton(onClick = { edits.clear(); pendingType = null; switchType(t) }) { Text("Discard") } },
+            dismissButton = { TextButton(onClick = { pendingType = null }) { Text("Keep editing") } }
+        )
     }
     pendingQual?.let { q ->
         AlertDialog(
@@ -283,17 +320,22 @@ fun TranslateScreen(archive: String, entry: String, onBack: () -> Unit) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrRowItem(
-    r: TrRow, value: String?, edited: Boolean, isDefault: Boolean, picked: Boolean,
+    r: TrRow, value: String?, edited: Boolean, isDefault: Boolean, picked: Boolean, type: String,
     onClick: () -> Unit, onLongClick: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().background(if (picked) Ej.colors.selection else Color.Transparent)
         .combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
         Box(Modifier.width(3.dp).heightIn(min = 56.dp).fillMaxHeight().background(if (edited) cs.primary else Color.Transparent))
+        if (type == "color") ArscText.argb(value ?: r.def)?.let { c ->
+            Box(Modifier.padding(start = 13.dp, top = 12.dp).size(28.dp)
+                .background(Color(c), RoundedCornerShape(6.dp))
+                .border(1.dp, cs.outlineVariant, RoundedCornerShape(6.dp)))
+        }
         Column(Modifier.weight(1f).padding(start = 13.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)) {
             Text(r.key, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!isDefault) Text(r.def, fontSize = 13.sp, color = cs.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (value == null) Text("Not translated", fontSize = 13.sp, fontStyle = FontStyle.Italic, color = Ej.colors.warning)
+            if (value == null) Text(if (type == "string") "Not translated" else "Not set", fontSize = 13.sp, fontStyle = FontStyle.Italic, color = Ej.colors.warning)
             else Text(value.ifEmpty { "(empty)" }, fontSize = 15.sp, color = cs.onSurface, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -301,8 +343,9 @@ private fun TrRowItem(
 }
 
 @Composable
-private fun EditDialog(r: TrRow, value: String?, qual: String, onDismiss: () -> Unit, onOk: (String) -> Unit) {
+private fun EditDialog(r: TrRow, value: String?, qual: String, type: String, onDismiss: () -> Unit, onOk: (String) -> Unit) {
     var v by remember(r.id) { mutableStateOf(value ?: "") }
+    val err = ArscText.invalid(type, v.trim())
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(r.key, fontSize = 15.sp, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -313,12 +356,15 @@ private fun EditDialog(r: TrRow, value: String?, qual: String, onDismiss: () -> 
                     SelectionContainer { Text(r.def.ifEmpty { "(empty)" }, fontSize = 14.sp, maxLines = 6, overflow = TextOverflow.Ellipsis) }
                 }
                 OutlinedTextField(
-                    v, { v = it }, label = { Text(ArscText.label(qual)) }, minLines = 2, maxLines = 8,
+                    v, { v = it }, label = { Text(ArscText.label(qual)) },
+                    minLines = if (type == "string") 2 else 1, maxLines = if (type == "string") 8 else 1,
+                    isError = err != null && v.isNotEmpty(),
+                    supportingText = if (err != null && v.isNotEmpty()) ({ Text(err) }) else null,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onOk(v) }) { Text("OK") } },
+        confirmButton = { TextButton(onClick = { onOk(if (type == "string") v else v.trim()) }, enabled = err == null) { Text("OK") } },
         dismissButton = {
             Row {
                 if (qual.isNotEmpty()) TextButton(onClick = { v = r.def }) { Text("Use default") }

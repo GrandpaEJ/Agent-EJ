@@ -47,9 +47,9 @@ object Native {
     external fun axmlDecode(archive: String, entry: String): String
     external fun axmlEncode(xml: String, output: String): String
     /** Translation mode: qualifiers of the <string> type, one per line ([entry] "" = a bare .arsc). */
-    external fun arscLocales(archive: String, entry: String): String
+    external fun arscLocales(archive: String, entry: String, type: String): String
     /** "id\tkey\tdefault\t[=text in qual]" per string, escaped. */
-    external fun arscStringsIn(archive: String, entry: String, qual: String): String
+    external fun arscStringsIn(archive: String, entry: String, type: String, qual: String): String
     /** Writes texts for ids in qual: signed APK copy, or the table, at [output]. */
     external fun arscTranslate(archive: String, entry: String, qual: String, ids: IntArray, texts: Array<String>, output: String): String
     /** Encodes edited XML back into [entry] of [archive] (signed copy at [output]), or to [output] when entry is "". */

@@ -21,12 +21,15 @@ object ArscText {
         return b.toString()
     }
 
-    /** Qualifiers of the string type besides the default: "-fr", "-zh-rCN", "-b+sr+Latn". */
-    fun locales(archive: String, entry: String): List<String> =
-        Native.arscLocales(archive, entry).split('\n').filter { it.isNotEmpty() }
+    /** Editable value types: resource type name → what the screen calls them. */
+    val TYPES = listOf("string" to "Strings", "color" to "Colors", "dimen" to "Dimens", "bool" to "Bools", "integer" to "Integers")
 
-    fun rows(archive: String, entry: String, qual: String): List<TrRow> =
-        Native.arscStringsIn(archive, entry, qual).split('\n').mapNotNull { line ->
+    /** Qualifiers of [type] besides the default: "-fr", "-zh-rCN", "-night". */
+    fun locales(archive: String, entry: String, type: String = "string"): List<String> =
+        Native.arscLocales(archive, entry, type).split('\n').filter { it.isNotEmpty() }
+
+    fun rows(archive: String, entry: String, qual: String, type: String = "string"): List<TrRow> =
+        Native.arscStringsIn(archive, entry, type, qual).split('\n').mapNotNull { line ->
             val p = line.split('\t')
             if (p.size < 4) return@mapNotNull null
             val id = p[0].toLongOrNull(16)?.toInt() ?: return@mapNotNull null
@@ -65,6 +68,26 @@ object ArscText {
             .distinctBy { it.first }
             .sortedBy { it.second.lowercase() }
             .toList()
+
+    private val COLOR = Regex("#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
+    private val DIMEN = Regex("-?(\\d+(\\.\\d*)?|\\.\\d+)(px|dp|dip|sp|pt|in|mm)")
+    private val INT = Regex("-?\\d+|0[xX][0-9a-fA-F]{1,8}")
+
+    /** Why [text] can't be a [type] value, or null when it can. */
+    fun invalid(type: String, text: String): String? = when (type) {
+        "color" -> if (COLOR.matches(text)) null else "Use #rgb, #argb, #rrggbb or #aarrggbb"
+        "dimen" -> if (DIMEN.matches(text)) null else "Use a number and a unit: 16dp, 14sp, 1.5px"
+        "bool" -> if (text == "true" || text == "false") null else "Use true or false"
+        "integer" -> if (INT.matches(text)) null else "Use a whole number or 0x hex"
+        else -> null
+    }
+
+    /** ARGB of a colour value as the table prints it ("#rrggbb" / "#aarrggbb"). */
+    fun argb(v: String?): Long? {
+        val h = v?.removePrefix("#") ?: return null
+        val n = h.toLongOrNull(16) ?: return null
+        return when (h.length) { 6 -> 0xFF000000L or n; 8 -> n; else -> null }
+    }
 
     /** Writes [edits] (id → text) for [qual]; null when saved, else why not. Blocking. */
     fun save(archive: String, entry: String, qual: String, edits: Map<Int, String>, target: String): String? {

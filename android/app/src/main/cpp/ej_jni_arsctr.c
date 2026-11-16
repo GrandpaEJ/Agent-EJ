@@ -1,4 +1,4 @@
-/* Translation mode: the <string> resources of a resources.arsc per locale,
+/* Translation mode: the <string> (and color, dimen, bool, integer) resources of a resources.arsc per configuration,
  * edits written back into the table (and the APK, signed). */
 #include "ej_jni_util.h"
 #include "formats.h"
@@ -31,21 +31,25 @@ static jstring take(JNIEnv *env, char *s) {
 }
 
 JNIEXPORT jstring JNICALL
-Java_org_agentej_android_Native_arscLocales(JNIEnv *env, jobject thiz, jstring jarc, jstring jentry) {
+Java_org_agentej_android_Native_arscLocales(JNIEnv *env, jobject thiz, jstring jarc, jstring jentry, jstring jtype) {
     (void)thiz;
     arsc_tr *t = open_tr(env, jarc, jentry);
-    jstring r = take(env, t ? arsc_tr_locales(t) : NULL);
+    const char *type = (*env)->GetStringUTFChars(env, jtype, NULL);
+    jstring r = take(env, t && type ? arsc_tr_locales_of(t, type) : NULL);
+    if (type) (*env)->ReleaseStringUTFChars(env, jtype, type);
     arsc_tr_free(t);
     return r;
 }
 
 JNIEXPORT jstring JNICALL
 Java_org_agentej_android_Native_arscStringsIn(JNIEnv *env, jobject thiz, jstring jarc, jstring jentry,
-                                              jstring jqual) {
+                                              jstring jtype, jstring jqual) {
     (void)thiz;
     arsc_tr *t = open_tr(env, jarc, jentry);
+    const char *type = (*env)->GetStringUTFChars(env, jtype, NULL);
     const char *qual = (*env)->GetStringUTFChars(env, jqual, NULL);
-    jstring r = take(env, t && qual ? arsc_tr_dump(t, qual) : NULL);
+    jstring r = take(env, t && type && qual ? arsc_tr_dump_of(t, type, qual) : NULL);
+    if (type) (*env)->ReleaseStringUTFChars(env, jtype, type);
     if (qual) (*env)->ReleaseStringUTFChars(env, jqual, qual);
     arsc_tr_free(t);
     return r;

@@ -6,6 +6,7 @@
 #include "format_arsc_model.h"
 #include "format_arsc_write.h"
 #include "format_arsc_xml_internal.h"
+#include "format_arsc_value.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,14 +64,14 @@ uint8_t *arsc_tr_encode(arsc_tr *t, size_t *out_size) {
     return t ? arsc_encode(t->m, out_size) : NULL;
 }
 
-/* Calls fn for the "string" type of every package. */
-#define EACH_STRING_TYPE(m, pk, ty)                                                  \
+/* Runs the body for type [name] ("string", "color", ...) of every package. */
+#define EACH_TYPE(m, pk, ty, name)                                                   \
     for (uint32_t _p = 0; _p < (m)->pkg_count; _p++)                                 \
         for (arsc_model_pkg *pk = &(m)->pkgs[_p]; pk; pk = NULL)                      \
             for (uint32_t _t = 0; _t < pk->type_count; _t++)                          \
                 for (arsc_model_type *ty = &pk->types[_t]; ty; ty = NULL)              \
                     if (ty->id && arsc_pkg_type_string(pk, ty->id - 1) &&             \
-                        strcmp(arsc_pkg_type_string(pk, ty->id - 1), "string") == 0)
+                        (!(name) || strcmp(arsc_pkg_type_string(pk, ty->id - 1), (name)) == 0))
 
 static arsc_model_variant *find_variant(arsc_model_type *ty, const char *qual) {
     for (uint32_t v = 0; v < ty->variant_count; v++) {
@@ -83,11 +84,11 @@ static arsc_model_variant *find_variant(arsc_model_type *ty, const char *qual) {
     return NULL;
 }
 
-char *arsc_tr_locales(arsc_tr *t) {
+char *arsc_tr_locales_of(arsc_tr *t, const char *type) {
     sbuf b = {0};
     put(&b, "", 0);
     if (!t) return b.p;
-    EACH_STRING_TYPE(t->m, pk, ty) {
+    EACH_TYPE(t->m, pk, ty, type) {
         for (uint32_t v = 0; v < ty->variant_count; v++) {
             char q[160];
             arsc_variant_qualifier(&ty->variants[v], q, sizeof(q));
@@ -104,20 +105,24 @@ char *arsc_tr_locales(arsc_tr *t) {
     return b.p;
 }
 
-static const char *text_of(arsc_model *m, arsc_model_entry *e) {
-    if (!e || !e->present || (e->flags & ARSC_ENTRY_COMPLEX) || e->data_type != ARSC_TYPE_STRING) return NULL;
-    return arsc_model_value(m, e->data);
+/* Text of a plain value: the pool string, or a colour/dimen/bool/int written
+ * out in [buf]. NULL for references, bags and missing entries. */
+static const char *text_of(arsc_model *m, arsc_model_entry *e, char *buf, size_t n) {
+    if (!e || !e->present || (e->flags & ARSC_ENTRY_COMPLEX)) return NULL;
+    if (e->data_type == ARSC_TYPE_STRING) return arsc_model_value(m, e->data);
+    return arsc_value_format(e->data_type, e->data, buf, n) == 0 ? buf : NULL;
 }
 
-char *arsc_tr_dump(arsc_tr *t, const char *qual) {
+char *arsc_tr_dump_of(arsc_tr *t, const char *type, const char *qual) {
     sbuf b = {0};
     put(&b, "", 0);
-    if (!t || !qual) return b.p;
-    EACH_STRING_TYPE(t->m, pk, ty) {
+    if (!t || !qual || !type) return b.p;
+    char db[64], tb[64];
+    EACH_TYPE(t->m, pk, ty, type) {
         arsc_model_variant *def = find_variant(ty, "");
         arsc_model_variant *tgt = qual[0] ? find_variant(ty, qual) : NULL;
         for (uint32_t i = 0; i < ty->entry_count; i++) {
-            const char *dv = text_of(t->m, arsc_variant_entry(def, i));
+            const char *dv = text_of(t->m, arsc_variant_entry(def, i), db, sizeof(db));
             if (!dv) continue;                          /* references, bags, gaps */
             arsc_model_entry *de = arsc_variant_entry(def, i);
             char id[16];
@@ -127,7 +132,7 @@ char *arsc_tr_dump(arsc_tr *t, const char *qual) {
             put(&b, "\t", 1);
             put_esc(&b, dv);
             put(&b, "\t", 1);
-            const char *tv = text_of(t->m, arsc_variant_entry(tgt, i));
+            const char *tv = text_of(t->m, arsc_variant_entry(tgt, i), tb, sizeof(tb));
             if (tv) { put(&b, "=", 1); put_esc(&b, tv); }  /* "=" marks a value, even an empty one */
             put(&b, "\n", 1);
         }
@@ -151,11 +156,15 @@ static int locale_config(const arsc_model_variant *def, const char *qual, uint8_
 int arsc_tr_set(arsc_tr *t, uint32_t id, const char *qual, const char *text) {
     if (!t || !qual || !text) return -1;
     uint32_t idx = id & 0xFFFF;
-    EACH_STRING_TYPE(t->m, pk, ty) {
+    char buf[64];
+    EACH_TYPE(t->m, pk, ty, (const char *)NULL) {
         if (pk->id != (id >> 24) || ty->id != ((id >> 16) & 0xFF)) continue;
         arsc_model_variant *def = find_variant(ty, "");
         arsc_model_entry *de = arsc_variant_entry(def, idx);
-        if (!text_of(t->m, de)) return -1;              /* only plain strings are translatable */
+        if (!text_of(t->m, de, buf, sizeof(buf))) return -1;    /* only plain values are editable */
+        uint8_t nt = ARSC_TYPE_STRING;
+        uint32_t nd = 0;
+        if (de->data_type != ARSC_TYPE_STRING && arsc_value_parse(de->data_type, text, &nt, &nd) != 0) return -1;
         arsc_model_variant *va = find_variant(ty, qual);
         if (!va) {                                      /* a new language */
             uint8_t cfg[ARSC_CONFIG_BYTES], size;
@@ -167,16 +176,23 @@ int arsc_tr_set(arsc_tr *t, uint32_t id, const char *qual, const char *text) {
         }
         arsc_model_entry *e = arsc_variant_entry(va, idx);
         if (!e) return -1;
-        const char *cur = text_of(t->m, e);
-        if (cur && strcmp(cur, text) == 0) return 0;    /* unchanged: leave the pool alone */
+        if (e->present && !(e->flags & ARSC_ENTRY_COMPLEX)) {
+            if (nt == ARSC_TYPE_STRING) {
+                const char *cur = text_of(t->m, e, buf, sizeof(buf));
+                if (e->data_type == ARSC_TYPE_STRING && cur && strcmp(cur, text) == 0) return 0;  /* leave the pool alone */
+            } else if (e->data_type == nt && e->data == nd) return 0;
+        }
         if (!e->present) {
             e->present = 1;
             e->flags = de->flags & (uint16_t)~ARSC_ENTRY_COMPLEX;
             e->key = de->key;
         }
-        e->data_type = ARSC_TYPE_STRING;
-        e->data = arsc_model_add_value(t->m, text);
+        e->data_type = nt;
+        e->data = nt == ARSC_TYPE_STRING ? arsc_model_add_value(t->m, text) : nd;
         return 1;
     }
     return -1;
 }
+
+char *arsc_tr_locales(arsc_tr *t) { return arsc_tr_locales_of(t, "string"); }
+char *arsc_tr_dump(arsc_tr *t, const char *qual) { return arsc_tr_dump_of(t, "string", qual); }
