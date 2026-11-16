@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Frequent semantic-version bump for Agent EJ (core) and EJ Manager (android).
 #
-#   scripts/version-bump.sh <feat|fix|major|breaking> "<summary>" [--android]
+#   scripts/version-bump.sh <feat|fix|major|breaking> "<summary>" [--android] [--same-day]
+#
+# One release per line (core / android) per day; a second one the same day is
+# refused unless --same-day is given.
 #
 # feat  -> minor  (x.n.x)   changelog section: Added
 # fix   -> patch  (x.x.n)   changelog section: Fixed
@@ -19,10 +22,16 @@ SUMMARY="${2:-}"
 TARGET="core"
 
 if [ -z "$KIND" ] || [ -z "$SUMMARY" ]; then
-    echo "usage: $0 <feat|fix|major|breaking> \"<summary>\" [--android]" >&2
+    echo "usage: $0 <feat|fix|major|breaking> \"<summary>\" [--android] [--same-day]" >&2
     exit 2
 fi
-if [ "${3:-}" = "--android" ] || [ "${2:-}" = "--android" ]; then TARGET="android"; fi
+SAME_DAY=0
+for a in "$@"; do
+    case "$a" in
+        --android) TARGET="android" ;;
+        --same-day) SAME_DAY=1 ;;
+    esac
+done
 
 if [ "$TARGET" = "android" ]; then
     CHANGELOG="android/CHANGELOG.md"
@@ -64,6 +73,16 @@ case "$KIND" in
 esac
 NEW="$MA.$MI.$PA"
 TODAY="$(date +%Y-%m-%d)"
+
+# At most one release per line per day: the day's work is one batch. A second
+# bump the same day is refused (pass --same-day only for an urgent hotfix).
+PREV="$(git for-each-ref --format='%(creatordate:short) %(refname:short)' "refs/tags/${TAG_PREFIX}[0-9]*" \
+    | awk -v d="$TODAY" '$1 == d { print $2 }' | head -1)"
+if [ -n "$PREV" ] && [ "$SAME_DAY" = 0 ]; then
+    echo "already released ${PREV} today: batch the rest of today's work into tomorrow's release" >&2
+    echo "(or pass --same-day for an urgent hotfix)" >&2
+    exit 3
+fi
 
 python3 - "$CHANGELOG" "$NEW" "$TODAY" "$SECTION" "$SUMMARY" <<'PY'
 import sys

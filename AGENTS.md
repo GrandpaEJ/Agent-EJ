@@ -160,6 +160,11 @@ released in **batches**: a batch is one branch / PR (or one sitting of related
 work), and it gets exactly **one** bump commit, changelog entry and tag at its
 end. Don't bump for every change; don't let a batch grow for weeks either.
 
+**At most one release per day per line** (core `vX.Y.Z`, app `android-vX.Y.Z`).
+Several finished features on one day go into that day's single release, as
+several changelog lines. `version-bump.sh` refuses a second bump on the same
+day; `--same-day` is only for an urgent hotfix to a release already pushed.
+
 | Batch contains | Version bump | Changelog section |
 |---|---|---|
 | any `feat(...)` | minor — `x.n.x` | `### Added` (+ `### Fixed` for fixes in it) |
