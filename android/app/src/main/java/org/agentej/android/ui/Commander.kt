@@ -163,6 +163,7 @@ fun Commander(
                 } else push(Route.Dex(DexSource(arc, listOf(t.entry ?: ""))))
             }
             Act.APK_TOOLS -> push(Route.Apk(t.path))
+            Act.ARSC_TRANSLATE -> push(Route.Translate(t.archive ?: t.path, t.entry ?: ""))
             Act.INSTALL -> External.install(context, t.path)?.let { note(it) }
             Act.EXTERNAL -> external(t, null)
             Act.OPEN_WITH -> popup = Popup.OpenWith(t)

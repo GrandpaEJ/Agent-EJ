@@ -40,7 +40,7 @@ import org.agentej.android.Target
 /** Tile colour/glyph for a built-in viewer, reusing the file-type tiles. */
 private fun sample(a: Act) = when (a) {
     Act.TEXT -> "a.txt"; Act.HEX -> "a.bin"; Act.IMAGE -> "a.png"; Act.ARCHIVE -> "a.zip"
-    Act.DEX_BROWSE -> "a.dex"; Act.AXML_VIEW -> "a.xml"; Act.ARSC_STRINGS -> "a.arsc"
+    Act.DEX_BROWSE -> "a.dex"; Act.AXML_VIEW -> "a.xml"; Act.ARSC_STRINGS, Act.ARSC_TRANSLATE -> "a.arsc"
     Act.APK_TOOLS, Act.MERGE -> "a.apk"; else -> "a"
 }
 

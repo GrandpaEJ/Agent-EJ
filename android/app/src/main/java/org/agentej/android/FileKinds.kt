@@ -25,6 +25,7 @@ enum class Act(val label: String) {
     AXML_ENCODE("Encode to binary XML"),
     AXML_REPAIR("Repair binary XML"),
     ARSC_STRINGS("Resource strings"),
+    ARSC_TRANSLATE("Translation mode"),
     ARSC_TOML("Dump resources (TOML)"),
     BUILD("Build APK"),
     ASSEMBLE("Smali → DEX"),
@@ -74,8 +75,8 @@ object FileKinds {
         FileKind.SPLITS -> if (inArchive) listOf(Act.ARCHIVE) else listOf(Act.MERGE, Act.ARCHIVE)
         FileKind.DEX -> if (inArchive) listOf(Act.DEX_BROWSE, Act.DEX2SMALI, Act.DEX_INFO, Act.HEX)
             else listOf(Act.DEX_BROWSE, Act.DEX2SMALI, Act.DEX_REPAIR, Act.DEX_INFO, Act.HEX)
-        FileKind.ARSC -> if (inArchive) listOf(Act.ARSC_STRINGS, Act.HEX)
-            else listOf(Act.ARSC_STRINGS, Act.ARSC_TOML, Act.HEX)
+        FileKind.ARSC -> if (inArchive) listOf(Act.ARSC_TRANSLATE, Act.ARSC_STRINGS, Act.HEX)
+            else listOf(Act.ARSC_TRANSLATE, Act.ARSC_STRINGS, Act.ARSC_TOML, Act.HEX)
         FileKind.XML -> if (inArchive) listOf(Act.AXML_VIEW, Act.TEXT, Act.HEX)
             else listOf(Act.TEXT, Act.AXML_VIEW, Act.AXML_ENCODE, Act.AXML_REPAIR)
         FileKind.DIR -> when (dirHint) {
