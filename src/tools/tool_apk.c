@@ -348,7 +348,7 @@ char* execute_repack_apk(cJSON* args) {
         uint8_t *buf = malloc(sz);
         fread(buf, 1, sz, fp);
         fclose(fp);
-        zip_writer_add(zw, name, buf, sz, 1, 0);
+        zip_writer_add_apk(zw, name, buf, sz);
         free(buf);
         free(files[i]);
     }

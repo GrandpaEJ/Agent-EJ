@@ -119,9 +119,27 @@ int zip_writer_add_raw(zip_writer *zw, const char *name,
 
 int zip_writer_add(zip_writer *zw, const char *name,
                    const void *data, size_t size, int compress, int alignment) {
-    (void)compress; // We always store for now
     uint32_t crc = crc32_buf(data, size);
+    if (compress && size > 64) {                /* deflate unless it doesn't pay */
+        size_t cn = 0;
+        uint8_t *c = zip_deflate(data, size, &cn);
+        if (c && cn < size) {
+            int rc = zip_writer_add_raw(zw, name, c, cn, size, crc, 8, 0);
+            free(c);
+            return rc;
+        }
+        free(c);
+    }
     return zip_writer_add_raw(zw, name, data, size, size, crc, 0, alignment);
+}
+
+/* An APK entry: resources.arsc and .so stored and aligned (Android 11+
+ * maps them in place), everything else deflated. */
+int zip_writer_add_apk(zip_writer *zw, const char *name, const void *data, size_t size) {
+    size_t l = strlen(name);
+    int so = l > 3 && strcmp(name + l - 3, ".so") == 0;
+    int keep = so || strcmp(name, "resources.arsc") == 0;
+    return zip_writer_add(zw, name, data, size, !keep, so ? 4096 : 4);
 }
 
 int zip_writer_close(zip_writer *zw) {

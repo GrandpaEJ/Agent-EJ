@@ -28,11 +28,12 @@ static int index_of(const char *const *names, int n, const char *name) {
     return -1;
 }
 
-/* The writer stores entries; keep them aligned (4, a page for .so) like zipalign. */
-static int add(zip_writer *zw, const char *name, const void *data, size_t sz) {
+/* A replaced entry keeps the compression it had; stored ones are aligned
+ * like zipalign does (a page for .so). */
+static int add(zip_writer *zw, const char *name, const void *data, size_t sz, int compress) {
     size_t l = strlen(name);
-    int align = (l > 3 && strcmp(name + l - 3, ".so") == 0) ? 4096 : 4;
-    return zip_writer_add(zw, name, data, sz, 0, align);
+    int so = l > 3 && strcmp(name + l - 3, ".so") == 0;
+    return zip_writer_add(zw, name, data, sz, compress, so ? 4096 : 4);
 }
 
 int apk_replace_entries(const char *in_apk, const char *out_apk, const char *const *names,
@@ -58,14 +59,14 @@ int apk_replace_entries(const char *in_apk, const char *out_apk, const char *con
         uint8_t *data = read_all(files[r], &sz);
         if (!data) { rc = -1; break; }
         done[r] = 1;
-        rc = add(zw, name, data, sz) == 0 ? 0 : -1;
+        rc = add(zw, name, data, sz, zip_entry_is_compressed(za, i)) == 0 ? 0 : -1;
         free(data);
     }
     for (int r = 0; r < n && rc == 0 && done; r++) {
         if (done[r]) continue;                 /* new entry, e.g. a fresh classesN.dex */
         size_t sz = 0;
         uint8_t *data = read_all(files[r], &sz);
-        rc = data && add(zw, names[r], data, sz) == 0 ? 0 : -1;
+        rc = data && zip_writer_add_apk(zw, names[r], data, sz) == 0 ? 0 : -1;
         free(data);
     }
     if (!done) rc = -1;
