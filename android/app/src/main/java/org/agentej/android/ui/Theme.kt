@@ -59,6 +59,8 @@ data class EjPalette(
     val success: Color = Color(0xFF3DDC84),
     val warning: Color = Color(0xFFE5B454),
     val selection: Color = Color(0x2E5B9BFF),
+    /** Background of the dual-pane window that isn't focused: a step darker than background. */
+    val paneIdle: Color = Color(0xFF0F1114),
     val match: Color = Color(0x40E5B454),
     val matchActive: Color = Color(0xE0B07A1C),
     val gutter: Color = Color(0xFF767C86),

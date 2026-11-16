@@ -27,6 +27,7 @@ char* execute_merge_apk(cJSON* args);
 char* execute_deobfuscate(cJSON* args);
 char* execute_analyze_apk(cJSON* args);
 char* execute_disasm_dex(cJSON* args);
+char* execute_dex_search(cJSON* args);
 char* execute_smali_assemble(cJSON* args);
 char* execute_repack_apk(cJSON* args);
 char* execute_resign_apk(cJSON* args);

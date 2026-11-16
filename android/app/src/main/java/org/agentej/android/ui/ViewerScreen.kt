@@ -66,7 +66,14 @@ import org.agentej.android.Util
 private const val EDIT_LIMIT = 256 * 1024
 
 @Composable
-fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Unit) {
+fun ViewerScreen(
+    title: String, body: String, source: String?, onBack: () -> Unit,
+    focusLine: Int = -1, focusText: String? = null,
+    /** Saves the edited text somewhere other than [source]; returns an error, or null when saved. */
+    onSave: (suspend (String) -> String?)? = null,
+    /** Snackbar after an [onSave] that worked. */
+    savedNote: String? = null
+) {
     val scope = rememberCoroutineScope()
     val clip = LocalClipboardManager.current
     val snack = remember { SnackbarHostState() }
@@ -84,11 +91,18 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
     var draft by remember { mutableStateOf("") }
     var confirmDiscard by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var navOpen by remember { mutableStateOf(false) }
+    val outline = remember(lines, lang) { if (lang == Lang.SMALI) smaliOutline(lines) else emptyList() }
+    val strings = remember(lines, lang) { if (lang == Lang.SMALI) smaliStrings(lines) else emptyList() }
     val list = rememberLazyListState()
     val dirty = editing && draft != text
-    val canEdit = source != null && text.length <= EDIT_LIMIT
+    val canEdit = (source != null || onSave != null) && text.length <= EDIT_LIMIT
 
+    /* a search-hit highlight stays until the user's own find replaces it */
+    var focusPinned by remember { mutableStateOf(focusLine >= 0) }
     LaunchedEffect(query, lines) {
+        if (query.isEmpty() && focusPinned) return@LaunchedEffect
+        focusPinned = false
         delay(150)
         matches = withContext(Dispatchers.Default) { findMatches(lines, query) }
         active = if (matches.isEmpty()) -1 else 0
@@ -97,11 +111,27 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
         matches.getOrNull(active)?.let { list.scrollToItem((it.line - 4).coerceAtLeast(0)) }
     }
 
+    /* opened on a search hit: bring its line up and mark the hit (or the whole line) */
+    LaunchedEffect(Unit) {
+        if (focusLine !in lines.indices) return@LaunchedEffect
+        val l = lines[focusLine]
+        val col = focusText?.let { l.indexOf(it, ignoreCase = true) } ?: -1
+        matches = listOf(if (col >= 0) Match(focusLine, col, col + focusText!!.length) else Match(focusLine, l.length - l.trimStart().length, l.length))
+        active = 0
+        list.scrollToItem((focusLine - 4).coerceAtLeast(0))
+    }
+
     fun step(d: Int) {
         if (matches.isNotEmpty()) active = (active + d).mod(matches.size)
     }
 
     fun save() = scope.launch {
+        if (onSave != null) {
+            val err = onSave(draft)
+            if (err == null) { text = draft; editing = false; snack.showSnackbar(savedNote ?: "Saved · compile with the hammer in the Dex Editor") }
+            else snack.showSnackbar(err)
+            return@launch
+        }
         val rc = withContext(Dispatchers.IO) { Native.writeText(source!!, draft) }
         if (rc == 0) {
             text = draft
@@ -129,6 +159,7 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
                 if (editing) {
                     IconBtn(EjIcons.Save, "Save", enabled = dirty) { save() }
                 } else {
+                    if (outline.isNotEmpty()) IconBtn(EjIcons.Compass, "Navigation") { navOpen = true }
                     IconBtn(Icons.Default.Search, "Find") { searching = !searching; if (!searching) query = "" }
                     IconBtn(EjIcons.Wrap, if (wrap) "Turn off wrap" else "Wrap lines",
                         tint = if (wrap) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) { wrap = !wrap }
@@ -144,7 +175,7 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
                             })
                             DropdownMenuItem(text = { Text("Larger text") }, enabled = font < 20f, onClick = { font += 1f })
                             DropdownMenuItem(text = { Text("Smaller text") }, enabled = font > 8f, onClick = { font -= 1f })
-                            if (source == null) DropdownMenuItem(
+                            if (source == null && onSave == null) DropdownMenuItem(
                                 text = { Text("Read-only (decoded)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                 enabled = false, onClick = {}
                             )
@@ -184,6 +215,15 @@ fun ViewerScreen(title: String, body: String, source: String?, onBack: () -> Uni
         }
         SnackbarHost(snack, Modifier.align(Alignment.BottomCenter))
     }
+
+    if (navOpen) NavigationDialog(outline, strings, onDismiss = { navOpen = false }, onPick = { it ->
+        navOpen = false
+        /* highlight the member name like a find hit and bring its line near the top */
+        val len = if (it.kind == 'S') it.name.length + 2 else it.name.length
+        matches = listOf(Match(it.line, it.col, it.col + len))
+        active = 0
+        scope.launch { list.scrollToItem((it.line - 4).coerceAtLeast(0)) }
+    })
 
     if (confirmDiscard) AlertDialog(
         onDismissRequest = { confirmDiscard = false },

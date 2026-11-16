@@ -80,7 +80,11 @@ arsc_ctx *arsc_parse(const uint8_t *data, size_t size) {
                 uint16_t pt = arsc_r16(data + poff);
                 uint32_t pcs = arsc_r32(data + poff + 4);
                 if (pcs < 8 || poff + pcs > off + cs) break;
-                if (pt == RES_TABLE_TYPE_TYPE && pkg->type_count < MAX_TYPES) {
+                /* one slot per type id (its first config chunk); the lookups walk every chunk */
+                int known = 0;
+                if (pt == RES_TABLE_TYPE_TYPE)
+                    for (int k = 0; k < pkg->type_count; k++) if (pkg->types[k].id == data[poff + 8]) known = 1;
+                if (pt == RES_TABLE_TYPE_TYPE && !known && pkg->type_count < MAX_TYPES) {
                     uint8_t tid = data[poff + 8];
                     int ti = pkg->type_count++;
                     pkg->types[ti].id = tid;
@@ -132,70 +136,6 @@ arsc_ctx *arsc_parse(const uint8_t *data, size_t size) {
         off += cs;
     }
     return ctx;
-}
-
-const char *arsc_lookup_id(arsc_ctx *ctx, uint32_t res_id) {
-    if (!ctx) return NULL;
-    uint32_t pkg_id = (res_id >> 24) & 0xFF;
-    uint8_t type_id = (res_id >> 16) & 0xFF;
-    uint32_t entry_idx = res_id & 0xFFFF;
-    for (int p = 0; p < ctx->package_count; p++) {
-        if (ctx->packages[p].id != pkg_id) continue;
-        for (int t = 0; t < ctx->packages[p].type_count; t++) {
-            if (ctx->packages[p].types[t].id != type_id) continue;
-            if (entry_idx >= ctx->packages[p].types[t].entry_count) break;
-            uint32_t eoff = ctx->packages[p].types[t].entry_offsets[entry_idx];
-            if (eoff == 0xFFFFFFFF) break;
-            const uint8_t *entry = ctx->packages[p].types[t].entry_data + eoff;
-            uint32_t key_idx = arsc_r32(entry + 4);
-            const char *key = arsc_sp_string(ctx->packages[p].types[t].key_pool, key_idx);
-            if (!key) break;
-            static char buf[256];
-            const char *tn = ctx->packages[p].types[t].name;
-            if (!tn) tn = "unknown";
-            /* Obfuscated tables give many entries the same key (every string
-             * "HEHE_BOI"); a name that resolves to another entry would rebind
-             * the reference, so callers get NULL and print @ref/0x... instead. */
-            if (arsc_reverse_lookup(ctx, tn, key) != res_id) return NULL;
-            snprintf(buf, sizeof(buf), "%s/%s", tn, key);
-            return buf;
-        }
-    }
-    return NULL;
-}
-
-uint32_t arsc_reverse_lookup(arsc_ctx *ctx, const char *type_name, const char *key_name) {
-    if (!ctx || !type_name || !key_name) return 0xFFFFFFFF;
-    for (int p = 0; p < ctx->package_count; p++) {
-        for (int t = 0; t < ctx->packages[p].type_count; t++) {
-            if (!ctx->packages[p].types[t].name) continue;
-            if (strcmp(ctx->packages[p].types[t].name, type_name) != 0) continue;
-            uint32_t poff = ctx->packages[p].pkg_off + arsc_r16(ctx->data + ctx->packages[p].pkg_off + 2);
-            uint32_t pkg_end = ctx->packages[p].pkg_off + arsc_r32(ctx->data + ctx->packages[p].pkg_off + 4);
-            uint8_t tid = ctx->packages[p].types[t].id;
-            while (poff + 8 <= pkg_end) {
-                uint16_t pt = arsc_r16(ctx->data + poff);
-                uint32_t pcs = arsc_r32(ctx->data + poff + 4);
-                if (pcs < 8 || poff + pcs > pkg_end) break;
-                if (pt == RES_TABLE_TYPE_TYPE && ctx->data[poff + 8] == tid) {
-                    const uint32_t *offsets = (const uint32_t*)(ctx->data + poff + arsc_r16(ctx->data + poff + 2));
-                    const uint8_t *entries = ctx->data + poff + arsc_r32(ctx->data + poff + 16);
-                    uint32_t ec = arsc_r32(ctx->data + poff + 12);
-                    for (uint32_t i = 0; i < ec; i++) {
-                        if (offsets[i] == 0xFFFFFFFF) continue;
-                        const uint8_t *entry = entries + offsets[i];
-                        uint32_t key_idx = arsc_r32(entry + 4);
-                        const char *kn = arsc_sp_string(ctx->packages[p].key_pool, key_idx);
-                        if (kn && strcmp(kn, key_name) == 0)
-                            return ((uint32_t)ctx->packages[p].id << 24) | ((uint32_t)tid << 16) | i;
-                    }
-                    break; // only check first chunk
-                }
-                poff += pcs;
-            }
-        }
-    }
-    return 0xFFFFFFFF;
 }
 
 const char *arsc_attr_enum(arsc_ctx *ctx, uint32_t attr_id, int32_t value) {

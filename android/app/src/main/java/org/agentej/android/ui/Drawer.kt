@@ -46,6 +46,7 @@ import kotlinx.coroutines.withContext
 import org.agentej.android.Native
 import org.agentej.android.Prefs
 import org.agentej.android.Util
+import org.agentej.android.Workspace
 
 private data class Volume(val used: Long, val total: Long)
 
@@ -81,6 +82,8 @@ fun DrawerContent(current: String, prefs: Prefs, onOpen: (String) -> Unit) {
 
             Section("Local")
             DrawerRow(EjIcons.Phone, "Internal storage", internal, cur == home.trimEnd('/')) { onOpen(home) }
+            val ws = Workspace.root
+            DrawerRow(EjIcons.Folder, "EJ workspace", null, cur == ws, sub = "Decoded projects, output") { onOpen(ws) }
             DrawerRow(Icons.Default.Lock, "App files", null, cur == appDir, sub = "Private · keys, temp output") { onOpen(appDir) }
             DrawerRow(Icons.Default.Home, "Root  /", null, cur == "/") { onOpen("/") }
 

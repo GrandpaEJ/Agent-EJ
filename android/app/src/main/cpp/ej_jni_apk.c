@@ -142,30 +142,14 @@ static void file_sha256(const char *path, char *out, size_t cap) {
         o += (size_t)snprintf(out + o, cap - o, "%02x", hash[i]);
 }
 
-static int tail_has(const char *path, const char *needle) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return 0;
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        return 0;
-    }
-    long size = ftell(f);
-    long window = size > 262144 ? 262144 : size;
-    if (window < 32 || fseek(f, size - window, SEEK_SET) != 0) {
-        fclose(f);
-        return 0;
-    }
-    char *buf = (char *)malloc((size_t)window + 1);
-    if (!buf) {
-        fclose(f);
-        return 0;
-    }
-    size_t got = fread(buf, 1, (size_t)window, f);
-    fclose(f);
-    buf[got] = '\0';
-    int hit = memmem(buf, got, needle, strlen(needle)) != NULL;
-    free(buf);
-    return hit;
+/* "V1 + V2 + V3" style summary of apk_sig_schemes(). */
+static void sig_label(const char *path, char *out, size_t cap) {
+    static const char *names[] = {"V1", "V2", "V3", "V3.1", "stamp"};
+    int bits = apk_sig_schemes(path);
+    out[0] = '\0';
+    for (int i = 0; i < 5 && bits > 0; i++)
+        if (bits & (1 << i)) snprintf(out + strlen(out), cap - strlen(out), "%s%s", out[0] ? " + " : "", names[i]);
+    if (!out[0]) snprintf(out, cap, bits < 0 ? "unreadable" : "unsigned");
 }
 
 JNIEXPORT jobjectArray JNICALL
@@ -182,14 +166,13 @@ Java_org_agentej_android_Native_apkInfo(JNIEnv *env, jobject thiz, jstring jpath
 
         char package[256] = "-", vname[128] = "-", vcode[32] = "-";
         char minsdk[32] = "-", maxsdk[32] = "-";
-        int v1 = 0, dex_count = 0;
+        int dex_count = 0;
 
         if (za) {
             for (int i = 0; i < entries; i++) {
                 const char *en = zip_get_entry_name(za, i);
                 if (!en) continue;
                 size_t el = strlen(en);
-                if (el > 3 && !strcmp(en + el - 3, ".SF") && !strncmp(en, "META-INF/", 9)) v1 = 1;
                 if (!strncmp(en, "classes", 7) && el > 4 && !strcmp(en + el - 4, ".dex")) dex_count++;
             }
             size_t mlen = 0;
@@ -212,16 +195,8 @@ Java_org_agentej_android_Native_apkInfo(JNIEnv *env, jobject thiz, jstring jpath
             zip_close(za);
         }
 
-        int v2 = tail_has(path, "APK Sig Block 42");
-        char sig[32];
-        if (v2 && v1)
-            snprintf(sig, sizeof(sig), "V1+V2/V3");
-        else if (v2)
-            snprintf(sig, sizeof(sig), "V2/V3");
-        else if (v1)
-            snprintf(sig, sizeof(sig), "V1");
-        else
-            snprintf(sig, sizeof(sig), "unsigned");
+        char sig[40];
+        sig_label(path, sig, sizeof(sig));
 
         char sha[80], fsize[32], cnt[32], dexbuf[16];
         file_sha256(path, sha, sizeof(sha));
@@ -248,4 +223,14 @@ Java_org_agentej_android_Native_apkInfo(JNIEnv *env, jobject thiz, jstring jpath
 
     if (path) (*env)->ReleaseStringUTFChars(env, jpath, path);
     return out;
+}
+
+/* APK info dialog: apk_sig_schemes() bits (APK_SIG_*), -1 when unreadable. */
+JNIEXPORT jint JNICALL
+Java_org_agentej_android_Native_apkSigSchemes(JNIEnv *env, jobject thiz, jstring jpath) {
+    (void)thiz;
+    const char *path = (*env)->GetStringUTFChars(env, jpath, NULL);
+    int bits = path ? apk_sig_schemes(path) : -1;
+    if (path) (*env)->ReleaseStringUTFChars(env, jpath, path);
+    return bits;
 }

@@ -55,5 +55,8 @@ typedef struct axml_ctx {
 int axml_parse_strpool(axml_ctx *ctx, const uint8_t *data, uint32_t size);
 int axml_parse_resmap(axml_ctx *ctx, const uint8_t *data, uint32_t size);
 int axml_add_event(axml_ctx *ctx, int type, int line, int ns, int name);
+/* Text for a typed attribute value; NULL when the raw string should be used. */
+const char *axml_fmt_typed(uint8_t type, uint32_t data, int raw_idx, const char *an,
+                           const struct arsc_ctx *arsc, uint32_t attr_res_id);
 
 #endif

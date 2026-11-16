@@ -2,6 +2,7 @@ package org.agentej.android.ui
 
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.agentej.android.FsEntry
@@ -17,9 +18,10 @@ class BrowserNav(
     val back: () -> Unit,
     val forward: () -> Unit,
     val open: (String) -> Unit,
-    val text: (title: String, body: String, source: String?) -> Unit,
     val apk: (String) -> Unit,
-    val drawer: () -> Unit
+    val drawer: () -> Unit,
+    /** Dual: swap the two panes. Single: switch to the other pane. */
+    val swap: () -> Unit
 )
 
 sealed interface BrowserDialog {
@@ -40,6 +42,8 @@ class BrowserState(val path: String) {
     var loading by mutableStateOf(true)
     var unreadable by mutableStateOf(false)
     var disk by mutableStateOf("")
+    /** Bump to re-read the listing (after a file operation, pull-to-refresh). */
+    var reload by mutableIntStateOf(0)
 
     var selected by mutableStateOf<Set<String>>(emptySet())
     val selecting get() = selected.isNotEmpty()
@@ -52,8 +56,18 @@ class BrowserState(val path: String) {
 
     var menuFor by mutableStateOf<FsEntry?>(null)
     var dialog by mutableStateOf<BrowserDialog?>(null)
+    /** APK info dialog (and its signature sheet) for this path; kept here so it survives a hex view on top. */
+    var apkInfo by mutableStateOf<String?>(null)
+    var apkSig by mutableStateOf(false)
 
     fun full(e: FsEntry) = Util.join(path, e.name)
+
+    /** The entry as something an action can work on. */
+    fun target(e: FsEntry): org.agentej.android.Target {
+        val split = archive
+        return if (split != null) org.agentej.android.Target(full(e), e.isDir, split.first, split.second + e.name)
+        else org.agentej.android.Target(full(e), e.isDir)
+    }
 
     /** What to draw in this entry's tile, or null for the plain type tile. */
     fun thumbSpec(e: FsEntry): ThumbSpec? {

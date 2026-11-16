@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include "format_axml_xml_parser.h"
@@ -47,6 +48,10 @@ static void free_builder(str_builder *b) {
 static arsc_ctx *g_enc_arsc = NULL;
 
 void axml_assemble_set_arsc(arsc_ctx *arsc) { g_enc_arsc = arsc; }
+
+/* First problem met while encoding (an unknown @type/name), "" when none. */
+static char g_enc_err[200];
+const char *axml_assemble_error(void) { return g_enc_err; }
 
 // Resolves an attribute's namespace prefix to its URI via the root's xmlns attrs
 static const char *resolve_ns(xml_doc *doc, const char *prefix) {
@@ -193,6 +198,12 @@ static void write_string_utf16(byte_buf *b, const char *str) {
 }
 
 // Try to resolve "@type/name" format references using ARSC
+/* Exactly eight hex digits: a raw resource id as the decoder writes it. */
+static int is_hex_id(const char *s) {
+    for (int i = 0; i < 8; i++) if (!isxdigit((unsigned char)s[i])) return 0;
+    return s[8] == '\0';
+}
+
 static int enc_resolve_ref(const char *val, uint32_t *out_data) {
     if (!g_enc_arsc || val[0] != '@') return -1;
     const char *slash = strchr(val + 1, '/');
@@ -316,19 +327,24 @@ static void parse_attr_value(str_builder *pool, const char *val, const char *ana
             *out_data = ref_data;
             return;
         }
-        // Fallback to raw "@ref/0x..." format
-        if (strncmp(val, "@ref/0x", 7) == 0) {
+        // Raw id: "@7f080002" (MT style) or the older "@ref/0x7f080002"
+        if (strncmp(val, "@ref/0x", 7) == 0 || is_hex_id(val + 1)) {
             *out_type = 0x01;
-            *out_data = strtoul(val + 7, NULL, 16);
+            *out_data = strtoul(val + (val[1] == 'r' ? 7 : 1), NULL, 16);
             return;
         }
+        /* "@type/name" nobody could resolve would become a literal string the
+         * app cannot use: report it instead of writing a broken file */
+        if (strchr(val, '/') && !g_enc_err[0])
+            snprintf(g_enc_err, sizeof(g_enc_err), "unknown resource %s", val);
     }
     if (val[0] == '?') { /* theme attribute reference: same forms with '?' */
         uint32_t ref_data;
         char tmp[512];
         snprintf(tmp, sizeof(tmp), "@%s", val + 1);
         if (enc_resolve_ref(tmp, &ref_data) == 0 ||
-            (strncmp(val, "?ref/0x", 7) == 0 && (ref_data = strtoul(val + 7, NULL, 16), 1))) {
+            (strncmp(val, "?ref/0x", 7) == 0 && (ref_data = strtoul(val + 7, NULL, 16), 1)) ||
+            (is_hex_id(val + 1) && (ref_data = strtoul(val + 1, NULL, 16), 1))) {
             *out_type = 0x02;
             *out_data = ref_data;
             return;
@@ -522,6 +538,7 @@ static void encode_node(xml_doc *doc, xml_node *node, str_builder *pool, byte_bu
 
 // Phase 2 + 3: Prepares String Pool and Encodes AST to AXML Buffer
 uint8_t* axml_assemble_doc(xml_doc *doc, size_t *out_size) {
+    g_enc_err[0] = '\0';
     str_builder pool = {0};
     add_string(&pool, "http://schemas.android.com/apk/res/android");
     collect_strings(doc, doc->root, &pool);
@@ -625,41 +642,4 @@ uint8_t* axml_assemble_doc(xml_doc *doc, size_t *out_size) {
     
     *out_size = final.len;
     return final.data;
-}
-#include <stdio.h>
-int axml_assemble(const char *src_xml, const char *out_axml) {
-    FILE *f = fopen(src_xml, "rb");
-    if (!f) return -1;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    
-    char *buf = malloc(sz + 1);
-    fread(buf, 1, sz, f);
-    buf[sz] = '\0';
-    fclose(f);
-    
-    xml_doc *doc = xml_parse(buf);
-    if (!doc) {
-        free(buf);
-        return -1;
-    }
-    
-    size_t out_sz = 0;
-    uint8_t *axml_data = axml_assemble_doc(doc, &out_sz);
-    
-    FILE *out = fopen(out_axml, "wb");
-    if (!out) {
-        free(axml_data);
-        xml_free(doc);
-        free(buf);
-        return -1;
-    }
-    fwrite(axml_data, 1, out_sz, out);
-    fclose(out);
-    
-    free(axml_data);
-    xml_free(doc);
-    free(buf);
-    return 0;
 }

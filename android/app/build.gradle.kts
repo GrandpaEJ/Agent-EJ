@@ -13,8 +13,8 @@ android {
         applicationId = "org.agentej.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 8
+        versionName = "0.8.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")

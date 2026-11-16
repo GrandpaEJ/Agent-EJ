@@ -20,13 +20,17 @@ zip_archive *zip_open(const char *path) {
     uint8_t *data = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
     if (data == MAP_FAILED) { close(fd); return NULL; }
 
+    /* scan back for the EOCD; an unsigned offset must not step below 0, or a
+     * small non-zip file (search == 0) wraps around and reads far out of the map */
     size_t eocd_off = st.st_size - 22;
     size_t search = st.st_size > 65557 ? st.st_size - 65557 : 0;
-    while (eocd_off >= search) {
-        if (r32(data + eocd_off) == EOCD_SIG) break;
+    int found = 0;
+    for (;;) {
+        if (r32(data + eocd_off) == EOCD_SIG) { found = 1; break; }
+        if (eocd_off == search) break;
         eocd_off--;
     }
-    if (eocd_off < search) { munmap(data, st.st_size); close(fd); return NULL; }
+    if (!found) { munmap(data, st.st_size); close(fd); return NULL; }
 
     eocd_t *eocd = (eocd_t *)(data + eocd_off);
     int n = eocd->num_total;

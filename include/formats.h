@@ -7,6 +7,7 @@
 typedef struct zip_archive zip_archive;
 typedef struct axml_ctx axml_ctx;
 typedef struct dex_ctx dex_ctx;
+#include "dex_find.h"
 typedef struct arsc_ctx arsc_ctx;
 
 // ZIP
@@ -24,6 +25,8 @@ int zip_writer_add(zip_writer *zw, const char *name, const void *data, size_t si
 int zip_writer_add_raw(zip_writer *zw, const char *name, const void *comp_data, size_t comp_size, size_t uncomp_size, uint32_t crc32, int method, int alignment);
 int zip_writer_close(zip_writer *zw);
 int zipalign_file(const char *in_path, const char *out_path, int alignment);
+/* Raw copy of one entry (keeps its compression); stored entries aligned. */
+int zip_copy_entry(zip_writer *zw, zip_archive *za, int index, int alignment);
 
 // AXML
 axml_ctx *axml_parse(const uint8_t *data, size_t size);
@@ -32,6 +35,11 @@ void axml_free(axml_ctx *ctx);
 int axml_assemble(const char *src_xml, const char *out_axml);
 void axml_set_arsc(axml_ctx *ctx, const struct arsc_ctx *arsc);
 void axml_assemble_set_arsc(struct arsc_ctx *arsc);
+/* Encodes XML text to binary AXML (malloc'd), naming @type/name refs through
+ * arsc (may be NULL). NULL on a parse error or an unknown reference; see
+ * axml_assemble_error() for which. */
+uint8_t *axml_assemble_text(const char *xml, struct arsc_ctx *arsc, size_t *out_size);
+const char *axml_assemble_error(void);
 
 // ARSC
 arsc_ctx *arsc_parse(const uint8_t *data, size_t size);
@@ -61,6 +69,17 @@ dex_ctx *dex_parse(const uint8_t *data, size_t size);
 char *dex_dump(dex_ctx *ctx);
 char *dex_to_smali_class(dex_ctx *ctx, uint32_t class_idx);
 void dex_free(dex_ctx *ctx);
+/* Number of class_defs in the dex. */
+uint32_t dex_class_count(dex_ctx *ctx);
+/* String pool: count and entry idx (decoded, "" when missing). */
+uint32_t dex_string_count(dex_ctx *ctx);
+const char *dex_string_at(dex_ctx *ctx, uint32_t idx);
+
+/* Dex editor search, see dex_find.h. scope "com/a" limits to that package
+ * (and sub-packages unless DEX_FIND_SHALLOW). Returns -1 on a bad query
+ * (unparsable integer, invalid regex). */
+int dex_find(dex_ctx *ctx, int kind, const char *query, int flags, const char *scope,
+             dex_find_fn fn, void *user);
 
 /* Deobfuscation — repair pass. Each takes a (possibly tampered) format image
  * and returns a malloc'd, cleaned image of *out_size that standard tools can
@@ -92,6 +111,22 @@ int deobf_heuristic_apply(const char *smali_root, char *report, size_t cap);
 int smali_assemble(const char *src_dir, const char *out_dex);
 /* Like smali_assemble, but reports how many DEX files were written (classes.dex, classes2.dex, ...). */
 int smali_assemble_n(const char *src_dir, const char *out_dex, int *n_out);
+/* Dex editor save: rebuild one dex with classes replaced by edited smali.
+ * Every class of `dex` is rendered and re-assembled, except the class_def
+ * indices in skip[], whose edited text is texts[] (n_texts entries; a text
+ * whose class is new to the dex adds it). Writes out_dex. Returns 0, -1 on a
+ * smali error (reason in smali_last_error()), -2 when the result no longer
+ * fits one dex. A skipped index with no text deletes that class. The
+ * n_ren renames (smali_rename) apply to every class, rendered or edited. */
+int smali_patch_dex(const uint8_t *dex, size_t len, const uint32_t *skip, int n_skip,
+                    const char *const *texts, int n_texts, const char *const *ren_from,
+                    const char *const *ren_to, int n_ren, const char *out_dex);
+/* Class/package rename over smali text, applied in order. A class entry is a
+ * descriptor ("La/b/C;": matches "La/b/C" followed by ';' or '<'); a package
+ * entry ends in '/' ("La/b/": a prefix, so sub-packages move too). Returns a
+ * malloc'd copy of text with every match rewritten, NULL when out of memory. */
+char *smali_rename(const char *text, const char *const *from, const char *const *to, int n);
+const char *smali_last_error(void);
 
 // Smali flow graph
 #include "smali_flow.h"
@@ -106,7 +141,19 @@ int apk_sign_v2_v3(const char *in_apk, const char *out_apk, rsa_key *key, int do
 /* Consumes the written ZIP payload `in_zip` (removing it) and produces a
  * signed, aligned APK at `out_apk`: v1 -> zipalign -> v2/v3, or align-only
  * when key_path is NULL. Returns 0, or APK_SIGN_ERR_CERT_MISMATCH / -1. */
+/* Copies in_apk to out_apk (unsigned), with entries names[i] replaced by
+ * files[i] (added when missing). Old signature files are dropped. */
+int apk_replace_entries(const char *in_apk, const char *out_apk, const char *const *names,
+                        const char *const *files, int n);
 int apk_sign_pipeline(const char *in_zip, const char *out_apk, const char *key_path, const char *cert_path);
+/* Signature schemes an APK carries: APK_SIG_V1 (a META-INF .SF file) and the IDs
+ * found in its APK Signing Block. 0 when unsigned, -1 when unreadable. */
+#define APK_SIG_V1    1
+#define APK_SIG_V2    2
+#define APK_SIG_V3    4
+#define APK_SIG_V31   8
+#define APK_SIG_STAMP 16
+int apk_sig_schemes(const char *path);
 char *apk_analyze(const char *path);
 void apk_free(char *result);
 

@@ -39,10 +39,14 @@ Java_org_agentej_android_Native_init(JNIEnv *env, jobject thiz, jobject asset_mg
     mkdir(ctx->data_dir, 0755);
 }
 
+#ifndef EJ_CORE_VERSION
+#define EJ_CORE_VERSION "dev"
+#endif
+
 JNIEXPORT jstring JNICALL
 Java_org_agentej_android_Native_version(JNIEnv *env, jobject thiz) {
     (void)thiz;
-    return ej_jstr(env, "agent-ej core 0.12.0 (android ndk)");
+    return ej_jstr(env, "agent-ej core " EJ_CORE_VERSION " (android ndk)");
 }
 
 JNIEXPORT jstring JNICALL

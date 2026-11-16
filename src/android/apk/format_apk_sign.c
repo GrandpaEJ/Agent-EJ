@@ -104,28 +104,22 @@ int apk_sign_v1(const char *in_apk, const char *out_apk, rsa_key *key, int do_v2
     // Copy original files: the signature files themselves are replaced by
     // the ones just written, but META-INF content (services/, *.version,
     // ...) is regular payload and must survive (issue #30).
-    int num_entries = zip_get_num_entries(za);
+    int num_entries = zip_get_num_entries(za), bad = 0;
     for (int i = 0; i < num_entries; i++) {
         const char *name = zip_get_entry_name(za, i);
         if (!name || strlen(name) == 0) continue;
         if (name[strlen(name) - 1] == '/') continue; // Skip directories
         if (apk_is_signature_file(name)) continue;   // Skip old signatures
 
-        size_t size = 0;
-        void *data = zip_extract_entry(za, i, &size);
-        if (data) {
-            int compress = zip_entry_is_compressed(za, i);
-            zip_writer_add(zw, name, data, size, compress, 0);
-            free(data);
-        }
+        if (zip_copy_entry(zw, za, i, 0) != 0) bad = 1;  /* as is: re-adding would store it uncompressed */
     }
 
     // Cleanup
     free(mf_data);
     free(sf_data);
     free(rsa_data);
-    zip_writer_close(zw);
+    int wrc = zip_writer_close(zw);
     zip_close(za);
 
-    return 0;
+    return bad || wrc != 0 ? -1 : 0;
 }

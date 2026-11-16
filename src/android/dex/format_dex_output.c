@@ -82,3 +82,17 @@ char *dex_dump(dex_ctx *ctx) {
 
     return buf;
 }
+
+uint32_t dex_class_count(dex_ctx *ctx) {
+    return ctx ? ctx->class_count : 0;
+}
+
+uint32_t dex_string_count(dex_ctx *ctx) {
+    return ctx ? ctx->string_count : 0;
+}
+
+/* String pool entry idx as decoded UTF-8 ("" when missing). */
+const char *dex_string_at(dex_ctx *ctx, uint32_t idx) {
+    if (!ctx || idx >= ctx->string_count || idx >= (uint32_t)ctx->sp.count || !ctx->sp.strings[idx]) return "";
+    return ctx->sp.strings[idx];
+}

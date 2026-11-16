@@ -97,6 +97,10 @@ fun BrowseBar(st: BrowserState, prefs: Prefs, nav: BrowserNav, shownCount: Int, 
                     onClick = { prefs.toggleBookmark(st.path); moreOpen = false }
                 )
                 DropdownMenuItem(
+                    text = { Text(if (prefs.dual) "Single pane" else "Dual pane") },
+                    onClick = { prefs.toggleDual(); moreOpen = false }
+                )
+                DropdownMenuItem(
                     text = { Text(if (prefs.grid) "List view" else "Grid view") },
                     onClick = { prefs.toggleGrid(); moreOpen = false }
                 )
@@ -123,7 +127,9 @@ fun SelectionBar(
     onDelete: () -> Unit,
     onInfo: (FsEntry) -> Unit,
     onRename: (FsEntry) -> Unit,
-    notify: (String) -> Unit
+    notify: (String) -> Unit,
+    /** Dual pane: copy (false) / move (true) straight into the other pane. */
+    toOther: ((cut: Boolean) -> Unit)? = null
 ) {
     var moreOpen by remember { mutableStateOf(false) }
     val single = st.selected.singleOrNull()?.let { n -> st.raw.firstOrNull { it.name == n } }
@@ -134,12 +140,15 @@ fun SelectionBar(
     ) {
         IconBtn(EjIcons.SelectAll, "Select all") { st.selected = shown.map { it.name }.toSet() }
         if (writable) {
-            IconBtn(EjIcons.Copy, "Copy") {
+            if (toOther != null) {
+                IconBtn(EjIcons.Copy, "Copy to other pane") { toOther(false) }
+                IconBtn(EjIcons.Cut, "Move to other pane") { toOther(true) }
+            } else IconBtn(EjIcons.Copy, "Copy") {
                 clipboard.set(st.selectedPaths(), false)
                 notify("${st.selected.size} ready to paste — open the target folder")
                 st.selected = emptySet()
             }
-            IconBtn(EjIcons.Cut, "Cut") {
+            if (toOther == null) IconBtn(EjIcons.Cut, "Cut") {
                 clipboard.set(st.selectedPaths(), true)
                 notify("${st.selected.size} ready to move — open the target folder")
                 st.selected = emptySet()
@@ -214,7 +223,7 @@ fun PasteStrip(clipboard: FileClipboard, onPaste: () -> Unit) {
     }
 }
 
-/** MT's bottom bar: back, forward, new, up — icons only, evenly spaced. */
+/** MT's bottom bar: back, forward, new, swap panes, up — icons only, evenly spaced. */
 @Composable
 fun BottomBar(nav: BrowserNav, upTo: String?, canCreate: Boolean, onCreate: (folder: Boolean) -> Unit) {
     var newOpen by remember { mutableStateOf(false) }
@@ -240,6 +249,7 @@ fun BottomBar(nav: BrowserNav, upTo: String?, canCreate: Boolean, onCreate: (fol
                 )
             }
         }
+        IconBtn(EjIcons.Swap, "Switch pane", onClick = nav.swap)
         IconBtn(EjIcons.Up, "Up one level", enabled = upTo != null) { upTo?.let(nav.open) }
     }
 }

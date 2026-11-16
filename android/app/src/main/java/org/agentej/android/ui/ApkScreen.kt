@@ -46,8 +46,11 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.agentej.android.AxmlText
 import org.agentej.android.Native
+import org.agentej.android.Outputs
 import org.agentej.android.Util
+import org.agentej.android.Workspace
 
 private data class ZipRow(val name: String, val size: Long, val compressed: Boolean)
 
@@ -55,10 +58,14 @@ private val TABS = listOf("Info", "ZIP", "Manifest", "Res", "Dex")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> Unit) {
+fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (title: String, body: String, xmlEntry: String?) -> Unit) {
     val scope = rememberCoroutineScope()
+    val pm = androidx.compose.ui.platform.LocalContext.current.packageManager
     val fileName = apkPath.substringAfterLast('/')
-    val baseDir = apkPath.substringBeforeLast('/', "/sdcard")
+    // next to the APK, or the workspace output folder when that is read-only (installed apps)
+    val baseDir = remember(apkPath) {
+        apkPath.substringBeforeLast('/', "/sdcard").takeIf { java.io.File(it).canWrite() } ?: Workspace.output
+    }
     val baseName = fileName.substringBeforeLast('.')
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -84,9 +91,9 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
         task {
             when {
                 name.endsWith(".xml", true) -> {
-                    val xml = Native.axmlDecode(apkPath, name)
+                    val xml = AxmlText.decode(pm, apkPath, name)
                     if (xml.isNotBlank()) {
-                        onView(name, xml)
+                        onView(name, xml, name)
                         "decoded $name"
                     } else {
                         "cannot decode $name"
@@ -95,7 +102,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                 else -> {
                     val text = Native.readEntry(apkPath, name)?.let { Util.decodeText(it) }
                     if (text != null) {
-                        onView(name, text)
+                        onView(name, text, null)
                         "opened $name"
                     } else {
                         "binary entry: $name"
@@ -132,7 +139,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
         when (tab) {
             2 -> if (manifest == null) {
                 busy = true
-                manifest = withContext(Dispatchers.IO) { Native.axmlDecode(apkPath, "AndroidManifest.xml") }
+                manifest = withContext(Dispatchers.IO) { AxmlText.decode(pm, apkPath, "AndroidManifest.xml") }
                 busy = false
             }
             3 -> if (resStrings.isEmpty()) {
@@ -178,14 +185,14 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                     }) { Text("Extract", fontSize = 11.sp) }
                     TextButton(enabled = !busy, onClick = {
                         task {
-                            val out = Util.join(baseDir, "${baseName}_signed.apk")
+                            val out = Outputs.beside(apkPath, "${baseName}_signed.apk")
                             Util.parseRc(Native.signApk(apkPath, out)).toString()
                         }
                     }) { Text("Sign", fontSize = 11.sp) }
                     TextButton(enabled = !busy, onClick = {
                         task {
                             val dir = Util.join(baseDir, "${baseName}_unpacked")
-                            val out = Util.join(baseDir, "${baseName}_repacked.apk")
+                            val out = Outputs.beside(apkPath, "${baseName}_repacked.apk")
                             val rc = Native.packDir(dir, out, true)
                             if (rc == 0) "repacked + signed → ${baseName}_repacked.apk" else "repack failed rc=$rc"
                         }
@@ -301,7 +308,7 @@ fun ApkScreen(apkPath: String, onBack: () -> Unit, onView: (String, String) -> U
                                 modifier = Modifier.fillMaxWidth().clickable {
                                     scope.launch {
                                         val smali = withContext(Dispatchers.IO) { Native.dexSmali(apkPath, dexSel, i) }
-                                        onView(cls, smali)
+                                        onView(cls, smali, null)
                                     }
                                 }.padding(horizontal = 12.dp, vertical = 6.dp)
                             )
