@@ -58,6 +58,7 @@ import org.agentej.android.ui.DexEditorState
 import org.agentej.android.ui.DexSource
 import org.agentej.android.ui.DrawerContent
 import org.agentej.android.ui.HexScreen
+import org.agentej.android.ui.TranslateScreen
 import org.agentej.android.ui.ImageScreen
 import org.agentej.android.ui.Pane
 import org.agentej.android.ui.ViewerScreen
@@ -71,6 +72,7 @@ sealed class Route {
         val onSave: (suspend (String) -> String?)? = null, val savedNote: String? = null
     ) : Route()
     data class Hex(val target: Target) : Route()
+    data class Translate(val archive: String, val entry: String) : Route()
     data class Image(val target: Target) : Route()
     class Dex(src: DexSource) : Route() { val state = DexEditorState(src) }
 }
@@ -201,6 +203,7 @@ private fun Shell() {
                 })
                 is Route.Text -> ViewerScreen(route.title, route.body, route.source, onBack = pop, focusLine = route.line, focusText = route.needle, onSave = route.onSave, savedNote = route.savedNote)
                 is Route.Hex -> HexScreen(route.target, onBack = pop)
+                is Route.Translate -> TranslateScreen(route.archive, route.entry, onBack = pop)
                 is Route.Image -> ImageScreen(route.target, onBack = pop)
                 is Route.Dex -> DexEditorScreen(route.state, onBack = pop, onView = { t, b, l, n, save -> push(Route.Text(t, b, line = l, needle = n, onSave = save)) })
             }

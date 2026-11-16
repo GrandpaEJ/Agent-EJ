@@ -77,6 +77,31 @@ the same workflow with its own C core. No MT code or libraries are used.
   VIEW DATA = cert DER in the hex viewer, COMPARE = "Paste and Verify"), and
   Data directory / APK path → open that folder in the pane.
 
+## resources.arsc — Translation mode
+
+- Tap `resources.arsc` → Open with: Arsc Editor plus · Arsc Editor ·
+  **Translation mode** · Resource querier.
+- First screen: every configuration of the string type as its raw
+  qualifier, sorted — `[DEFAULT]`, `af`, `am`, … `b+es+419`, `en-rGB`.
+  ⚙ Preferences: ☑ "Export the translation data to arsc when saving file".
+  ⋮: Save · Dictionary manager · Generate dictionary · Exit.
+- Pick a language → that language's strings, counter `translated/total`
+  (`0/746`). Left: the language's current text; right: the new text, empty
+  until edited. The language is edited in place.
+- Tap a row → dialog titled with the key: current text, then a
+  "Translation" field prefilled with it (selected). CANCEL · OK.
+- Bottom bar: select all · select · + · globe (online translate) · list.
+- Save keeps the session's edits; leaving asks "Do you want to save the
+  file?" — EXIT DIRECTLY · SAVE AND EXIT, which writes the arsc.
+
+EJ Manager's take (`TranslateScreen`): opens on the device language when the
+table has it; each row shows key, default text and the chosen language's
+text ("Not translated" when missing), so the default is the reference while
+translating; All / Untranslated / Edited filters and search; languages by
+name with "Add language" (`-ll` / `-ll-rCC`); ✓ writes a signed
+`<name>_edited.apk` and later saves build on it. Not built yet: dictionaries,
+online translate, multi-select.
+
 ## EJ Manager — implementation order (one at a time)
 
 | # | Feature | Core / JNI need | Status |

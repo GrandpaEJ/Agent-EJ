@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -47,11 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,7 +58,7 @@ import kotlinx.coroutines.withContext
 import org.agentej.android.Native
 import org.agentej.android.Util
 
-/** Files above this open read-only: a single BasicTextField over megabytes stalls the UI thread. */
+/** Files above this open read-only in the lazy viewer; the editor holds the whole text. */
 private const val EDIT_LIMIT = 256 * 1024
 
 @Composable
@@ -78,7 +74,12 @@ fun ViewerScreen(
     val clip = LocalClipboardManager.current
     val snack = remember { SnackbarHostState() }
     var text by remember { mutableStateOf(body) }
-    val lines = remember(text) { text.split('\n').map { it.removeSuffix("\r") } }
+    val canEdit = (source != null || onSave != null) && body.length <= EDIT_LIMIT
+    val ed = remember { CodeEditorState() }
+    /* find, the outline and "unsaved" follow the editor a moment after typing stops */
+    var shown by remember { mutableStateOf(body) }
+    LaunchedEffect(ed.edits) { if (ed.edits > 0) { delay(300); ed.text()?.let { shown = it } } }
+    val lines = remember(shown) { shown.split('\n').map { it.removeSuffix("\r") } }
     val lang = remember(title) { detectLang(title, body) }
 
     var wrap by rememberSaveable { mutableStateOf(lang == Lang.PLAIN) }
@@ -87,16 +88,17 @@ fun ViewerScreen(
     var query by remember { mutableStateOf("") }
     var matches by remember { mutableStateOf<List<Match>>(emptyList()) }
     var active by remember { mutableIntStateOf(-1) }
-    var editing by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf("") }
     var confirmDiscard by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var navOpen by remember { mutableStateOf(false) }
     val outline = remember(lines, lang) { if (lang == Lang.SMALI) smaliOutline(lines) else emptyList() }
     val strings = remember(lines, lang) { if (lang == Lang.SMALI) smaliStrings(lines) else emptyList() }
     val list = rememberLazyListState()
-    val dirty = editing && draft != text
-    val canEdit = (source != null || onSave != null) && text.length <= EDIT_LIMIT
+    val dirty = canEdit && shown != text
+
+    fun reveal(line: Int, col: Int = 0) = scope.launch {
+        if (canEdit) ed.reveal(line, col) else list.scrollToItem((line - 4).coerceAtLeast(0))
+    }
 
     /* a search-hit highlight stays until the user's own find replaces it */
     var focusPinned by remember { mutableStateOf(focusLine >= 0) }
@@ -108,7 +110,7 @@ fun ViewerScreen(
         active = if (matches.isEmpty()) -1 else 0
     }
     LaunchedEffect(active) {
-        matches.getOrNull(active)?.let { list.scrollToItem((it.line - 4).coerceAtLeast(0)) }
+        matches.getOrNull(active)?.let { reveal(it.line, it.start) }
     }
 
     /* opened on a search hit: bring its line up and mark the hit (or the whole line) */
@@ -118,59 +120,58 @@ fun ViewerScreen(
         val col = focusText?.let { l.indexOf(it, ignoreCase = true) } ?: -1
         matches = listOf(if (col >= 0) Match(focusLine, col, col + focusText!!.length) else Match(focusLine, l.length - l.trimStart().length, l.length))
         active = 0
-        list.scrollToItem((focusLine - 4).coerceAtLeast(0))
+        reveal(focusLine, col.coerceAtLeast(0))
     }
 
     fun step(d: Int) {
         if (matches.isNotEmpty()) active = (active + d).mod(matches.size)
     }
 
-    fun save() = scope.launch {
+    fun save(then: () -> Unit = {}) = scope.launch {
+        val draft = ed.text() ?: return@launch
+        shown = draft
         if (onSave != null) {
             val err = onSave(draft)
-            if (err == null) { text = draft; editing = false; snack.showSnackbar(savedNote ?: "Saved · compile with the hammer in the Dex Editor") }
+            if (err == null) { text = draft; then(); snack.showSnackbar(savedNote ?: "Saved · compile with the hammer in the Dex Editor") }
             else snack.showSnackbar(err)
             return@launch
         }
         val rc = withContext(Dispatchers.IO) { Native.writeText(source!!, draft) }
         if (rc == 0) {
             text = draft
-            editing = false
+            then()
             snack.showSnackbar("Saved ${Util.compactSize(draft.toByteArray().size.toLong())}")
         } else snack.showSnackbar("Save failed — the folder may be read-only")
     }
 
-    BackHandler(enabled = dirty) { confirmDiscard = true }
-    BackHandler(enabled = !dirty && editing) { editing = false }
-    BackHandler(enabled = !editing && searching) { searching = false; query = "" }
+    BackHandler(enabled = searching) { searching = false; query = "" }
+    BackHandler(enabled = !searching && dirty) { confirmDiscard = true }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
             EjTopBar(
                 title = title,
-                subtitle = if (editing) "Editing" + if (dirty) " · unsaved" else ""
-                else "${lines.size} lines · ${lang.label} · ${Util.compactSize(text.length.toLong())}",
+                subtitle = "${lines.size} lines · ${lang.label}" +
+                    if (dirty) " · unsaved" else if (canEdit) "" else " · read-only",
                 leading = {
                     IconBtn(Icons.AutoMirrored.Filled.ArrowBack, "Back") {
-                        if (dirty) confirmDiscard = true else if (editing) editing = false else onBack()
+                        if (dirty) confirmDiscard = true else onBack()
                     }
                 }
             ) {
-                if (editing) {
-                    IconBtn(EjIcons.Save, "Save", enabled = dirty) { save() }
-                } else {
+                run {
+                    if (canEdit) IconBtn(EjIcons.Save, "Save", enabled = dirty,
+                        tint = if (dirty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) { save() }
                     if (outline.isNotEmpty()) IconBtn(EjIcons.Compass, "Navigation") { navOpen = true }
                     IconBtn(Icons.Default.Search, "Find") { searching = !searching; if (!searching) query = "" }
-                    IconBtn(EjIcons.Wrap, if (wrap) "Turn off wrap" else "Wrap lines",
-                        tint = if (wrap) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) { wrap = !wrap }
                     Box {
                         IconBtn(Icons.Default.MoreVert, "More") { moreOpen = true }
                         DropdownMenu(moreOpen, onDismissRequest = { moreOpen = false }) {
-                            if (canEdit) DropdownMenuItem(text = { Text("Edit") }, onClick = {
-                                moreOpen = false; draft = text; editing = true; searching = false
+                            DropdownMenuItem(text = { Text(if (wrap) "Turn off wrap" else "Wrap lines") }, onClick = {
+                                moreOpen = false; wrap = !wrap
                             })
                             DropdownMenuItem(text = { Text("Copy all") }, onClick = {
-                                moreOpen = false; clip.setText(AnnotatedString(text))
+                                moreOpen = false; clip.setText(AnnotatedString(ed.text() ?: text))
                                 scope.launch { snack.showSnackbar("Copied ${lines.size} lines") }
                             })
                             DropdownMenuItem(text = { Text("Larger text") }, enabled = font < 20f, onClick = { font += 1f })
@@ -183,24 +184,21 @@ fun ViewerScreen(
                     }
                 }
             }
-            if (searching && !editing) FindBar(query, { query = it }, matches.size, active, ::step) {
+            if (searching) FindBar(query, { query = it }, matches.size, active, ::step) {
                 searching = false; query = ""
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            if (editing) {
-                BasicTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    textStyle = TextStyle(
-                        fontFamily = FontFamily.Monospace, fontSize = font.sp, lineHeight = (font * 1.5f).sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(12.dp)
+            if (canEdit) {
+                CodeEditor(
+                    body, lang, ed,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    wrap = wrap, fontSize = font, matches = matches, active = active
                 )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                SymbolBar(ed)
             } else if (text.isBlank()) {
-                EmptyState("Empty file", if (canEdit) "Use ⋮ → Edit to add content." else "")
+                EmptyState("Empty file")
             } else {
                 CodeView(
                     lines, lang,
@@ -222,7 +220,7 @@ fun ViewerScreen(
         val len = if (it.kind == 'S') it.name.length + 2 else it.name.length
         matches = listOf(Match(it.line, it.col, it.col + len))
         active = 0
-        scope.launch { list.scrollToItem((it.line - 4).coerceAtLeast(0)) }
+        reveal(it.line, it.col)
     })
 
     if (confirmDiscard) AlertDialog(
@@ -230,11 +228,11 @@ fun ViewerScreen(
         title = { Text("Discard changes?") },
         text = { Text("Your edits to $title haven't been saved.") },
         confirmButton = {
-            TextButton(onClick = { confirmDiscard = false; editing = false }) {
+            TextButton(onClick = { confirmDiscard = false; onBack() }) {
                 Text("DISCARD", color = MaterialTheme.colorScheme.error)
             }
         },
-        dismissButton = { TextButton(onClick = { confirmDiscard = false; save() }) { Text("SAVE") } }
+        dismissButton = { TextButton(onClick = { confirmDiscard = false; save(onBack) }) { Text("SAVE") } }
     )
 }
 

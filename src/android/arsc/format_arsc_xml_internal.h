@@ -8,6 +8,10 @@
 #include "format_arsc_internal.h"
 #include "format_arsc_model.h"
 
+/* The res directory suffix of a configuration: "" for the default one,
+ * "-fr", "-zh-rCN", "-land" and so on, exactly as the decoder names them. */
+void arsc_variant_qualifier(const arsc_model_variant *v, char *out, size_t out_sz);
+
 /* Locates the entry `key` of `type_name` in the configuration `qual`, which is
  * "" for the default configuration and "-land" and friends otherwise.
  * `occurrence` selects which of the entries sharing that key is wanted,

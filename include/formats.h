@@ -58,6 +58,20 @@ int arsc_compile_toml(const char *arsc_path, const char *toml_path, const char *
 int arsc_compile_xml(const char *arsc_path, const char *res_dir,
                      const char *out_arsc, int *out_changed, int *out_skipped);
 const char *arsc_lookup_id(arsc_ctx *ctx, uint32_t res_id);
+/* Translation view (MT's Translation mode) over the <string> resources.
+ * Qualifiers are res directory suffixes: "" default, "-fr", "-zh-rCN". */
+typedef struct arsc_tr arsc_tr;
+arsc_tr *arsc_tr_open(const uint8_t *data, size_t size);
+/* Every configuration the string type has, one per line (malloc'd). */
+char *arsc_tr_locales(arsc_tr *t);
+/* One line per plain string: "id\tkey\tdefault\t[=value in qual]", fields
+ * escaped (\\ \n \t \r); the last field is empty when qual has no value. */
+char *arsc_tr_dump(arsc_tr *t, const char *qual);
+/* Sets id's text in qual, adding the entry or a new "-ll[-rCC]" language when
+ * missing. 1 changed, 0 already that text, -1 not a translatable string. */
+int arsc_tr_set(arsc_tr *t, uint32_t id, const char *qual, const char *text);
+uint8_t *arsc_tr_encode(arsc_tr *t, size_t *out_size);
+void arsc_tr_free(arsc_tr *t);
 const char *arsc_get_type_name(arsc_ctx *ctx, uint32_t pkg_id, uint8_t type_id);
 uint32_t arsc_reverse_lookup(arsc_ctx *ctx, const char *type_name, const char *key_name);
 const char *arsc_attr_enum(arsc_ctx *ctx, uint32_t attr_id, int32_t value);

@@ -40,6 +40,46 @@ static const char *density_str(uint16_t d) {
     }
 }
 
+/* A 2-byte language/region field: two ASCII letters, or AOSP's packed form of
+ * three (high bit set, 5 bits per letter from base). Empty when unset. */
+static void unpack_code(const uint8_t *in, char base, char *out) {
+    out[0] = '\0';
+    if (!in[0]) return;
+    if (in[0] & 0x80) {
+        out[0] = (char)(base + (in[1] & 0x1f));
+        out[1] = (char)(base + (((in[1] & 0xe0) >> 5) | ((in[0] & 0x03) << 3)));
+        out[2] = (char)(base + ((in[0] & 0x7c) >> 2));
+        out[3] = '\0';
+    } else {
+        out[0] = (char)in[0];
+        out[1] = (char)in[1];
+        out[2] = '\0';
+    }
+}
+
+/* The locale part of a qualifier as aapt2 names directories: "fr", "fil",
+ * "zh-rCN", "es-r419", or BCP-47 "b+sr+Latn" when a script or variant is set. */
+static void add_locale(char *buf, size_t buf_sz, const uint8_t *cfg, uint32_t cfg_size) {
+    char lang[4], region[4], seg[48];
+    unpack_code(cfg + 8, 'a', lang);
+    unpack_code(cfg + 10, '0', region);
+    if (!lang[0]) return;
+    /* localeScript at 36 is shown only when given, not when the system
+     * computed it (localeScriptWasComputed, byte 50); localeVariant at 40 */
+    char script[5] = "", variant[9] = "";
+    if (cfg_size >= 40 && cfg[36] && !(cfg_size >= 51 && cfg[50])) memcpy(script, cfg + 36, 4);
+    if (cfg_size >= 48 && cfg[40]) memcpy(variant, cfg + 40, 8);
+    if (script[0] || variant[0]) {
+        snprintf(seg, sizeof(seg), "b+%s%s%s%s%s%s%s", lang, script[0] ? "+" : "", script,
+                 region[0] ? "+" : "", region, variant[0] ? "+" : "", variant);
+    } else if (region[0]) {
+        snprintf(seg, sizeof(seg), "%s-r%s", lang, region);
+    } else {
+        snprintf(seg, sizeof(seg), "%s", lang);
+    }
+    qadd(buf, buf_sz, seg);
+}
+
 void apk_build_config_str(const uint8_t *chunk, char *out, size_t out_sz) {
     if (!out || out_sz == 0) return;
     out[0] = '\0';
@@ -68,6 +108,11 @@ void apk_build_config_str(const uint8_t *chunk, char *out, size_t out_sz) {
 
     // Qualifier order matches AOSP ResTable_config::toString().
     char buf[160] = "";
+
+    uint16_t mcc = arsc_r16(cfg + 4), mnc = arsc_r16(cfg + 6);
+    if (mcc) qaddf(buf, sizeof(buf), "mcc%u", mcc);
+    if (mnc) qaddf(buf, sizeof(buf), mnc == 0xFFFF ? "mnc00" : "mnc%u", mnc == 0xFFFF ? 0 : mnc);
+    add_locale(buf, sizeof(buf), cfg, cfg_size);
 
     switch (screen_layout & 0xC0) {            // layout direction
         case 0x40: qadd(buf, sizeof(buf), "ldltr"); break;
