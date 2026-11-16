@@ -24,7 +24,7 @@
  * size field, which bounds every read inside, comes straight from the model.
  * Sharing this one implementation is what keeps the directory names the
  * decoder writes and the ones this compiler matches identical. */
-static void variant_qualifier(const arsc_model_variant *v, char *out, size_t out_sz) {
+void arsc_variant_qualifier(const arsc_model_variant *v, char *out, size_t out_sz) {
     out[0] = '\0';
     if (!v || v->config_size < 4) return;
     uint8_t chunk[XML_CFG_HDR + ARSC_CONFIG_BYTES];
@@ -55,7 +55,7 @@ arsc_model_entry *arsc_xml_find_entry(arsc_model *m, const char *type_name,
             for (uint32_t v = 0; v < ty->variant_count; v++) {
                 arsc_model_variant *va = &ty->variants[v];
                 char q[160];
-                variant_qualifier(va, q, sizeof(q));
+                arsc_variant_qualifier(va, q, sizeof(q));
                 int hit = qual[0] ? (strcmp(q, qual) == 0)
                                   : arsc_variant_is_default(va);
                 if (!hit) continue;
